@@ -184,7 +184,17 @@ if ($CheckOnly) {
     return
 }
 
-if (-not $SkipMySql) {
+# 若 3307 已在监听且本项目已存在 appsettings.Local.json，说明可直接复用已有实例，
+# 跳过实例修正（避免 Start-MySql.ps1 因"端口被占用"直接抛错，导致后端拿不到本地配置而启动失败）。
+$hostLocal = Join-Path $root 'Host/src/IndustrialIoT.Host/appsettings.Local.json'
+$gwLocal   = Join-Path $root 'MachineConnectionApi20260423/MachineConnectionApi/MachineConnectionApi/appsettings.Local.json'
+$mySqlListening = [bool](Get-NetTCPConnection -State Listen -LocalPort 3307 -ErrorAction SilentlyContinue | Select-Object -First 1)
+$mySqlReuse = $mySqlListening -and (Test-Path -LiteralPath $hostLocal) -and (Test-Path -LiteralPath $gwLocal)
+
+if (-not $SkipMySql -and $mySqlReuse) {
+    Write-Host '==== 检测到 MySQL(3307) 已在运行且本地配置存在，复用实例（跳过修正）====' -ForegroundColor Yellow
+}
+elseif (-not $SkipMySql) {
     Write-Host '==== 修正 MySQL（实例 / 库 / 账号 / appsettings.Local.json / 种子）====' -ForegroundColor Cyan
     & (Join-Path $root 'deploy/mysql/Start-MySql.ps1')
     if ($LASTEXITCODE -ne 0) { throw 'Start-MySql.ps1 失败。' }
