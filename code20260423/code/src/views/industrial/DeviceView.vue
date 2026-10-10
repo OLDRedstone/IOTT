@@ -70,7 +70,7 @@
                     <MqttForwardingStatus />
                     <el-input v-model="searchKeyword" placeholder="搜索设备名称/编号/IP/协议" style="width: 300px; margin-left: auto"
                         prefix-icon="Search" />
-                    <input ref="deviceImportInputRef" type="file" accept=".csv,text/csv,.json,application/json" hidden
+                    <input ref="deviceImportInputRef" type="file" accept=".csv,text/csv,.json,application/json,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden
                         @change="handleDeviceImportFile" />
                 </div>
 
@@ -4253,7 +4253,7 @@ const openBatchAddDialog = () => {
 const exportDeviceTemplate = async () => {
     try {
         const blob = await machineConnectionDevicesApi.downloadTemplate();
-        downloadBlob(blob, "device-import-template.csv");
+        downloadBlob(blob, "device-import-template.xlsx");
     } catch (e) {
         ElMessage.error(getApiErrorMessage(e, "设备模板导出失败"));
     }

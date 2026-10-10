@@ -225,7 +225,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from "vue";
 import { Link, Edit, Plus } from "@element-plus/icons-vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { machineConnectionDevicesApi } from "@/api/machineConnectionDevices";
 import { machineConnectionPointsApi, type ReadTagResult } from "@/api/machineConnectionPoints";
 
@@ -429,6 +429,20 @@ const writeData = async () => {
 	}
 
 	try {
+		await ElMessageBox.confirm(
+			`确定写入 ${rwForm.address}（${rwForm.dataType}）= ${rwForm.value} ？`,
+			"写入确认",
+			{
+				confirmButtonText: "写入",
+				cancelButtonText: "取消",
+				type: "warning",
+			},
+		);
+	} catch {
+		return;
+	}
+
+	try {
 		const res = await machineConnectionPointsApi.writeTags(
 			deviceForm.deviceId,
 			{
@@ -518,6 +532,20 @@ const batchWrite = async () => {
 	const valid = batchItems.value.filter((i) => i.address);
 	if (valid.length === 0) {
 		ElMessage.warning("请添加写入项目");
+		return;
+	}
+
+	try {
+		await ElMessageBox.confirm(
+			`确定批量写入 ${valid.length} 个项目？`,
+			"写入确认",
+			{
+				confirmButtonText: "写入",
+				cancelButtonText: "取消",
+				type: "warning",
+			},
+		);
+	} catch {
 		return;
 	}
 

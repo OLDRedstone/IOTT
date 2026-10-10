@@ -81,8 +81,16 @@
 												value="int"
 											/>
 											<el-option
+												label="32位无符号（双字）"
+												value="uint32"
+											/>
+											<el-option
 												label="浮点数"
 												value="float"
+											/>
+											<el-option
+												label="双精度浮点数"
+												value="double"
 											/>
 											<el-option
 												label="字符串"
@@ -187,8 +195,16 @@
 													value="int"
 												/>
 												<el-option
+													label="32位无符号（双字）"
+													value="uint32"
+												/>
+												<el-option
 													label="浮点数"
 													value="float"
+												/>
+												<el-option
+													label="双精度浮点数"
+													value="double"
 												/>
 												<el-option
 													label="字符串"
@@ -283,8 +299,12 @@ function toApiDataType(t: string): string {
 			return "UInt16";
 		case "int":
 			return "Int32";
+		case "uint32":
+			return "UInt32";
 		case "float":
 			return "Float";
+		case "double":
+			return "Double";
 		default:
 			return "String";
 	}
@@ -293,9 +313,36 @@ function toApiDataType(t: string): string {
 // 写入值按类型转换
 function coerceValue(t: string, v: string): unknown {
 	if (t === "bool") return v === "true" || v === "1";
-	if (t === "int" || t === "int16" || t === "uint16") return parseInt(v, 10);
-	if (t === "float") return parseFloat(v);
+	if (t === "int" || t === "int16" || t === "uint16" || t === "uint32")
+		return parseInt(v, 10);
+	if (t === "float" || t === "double") return parseFloat(v);
 	return v;
+}
+
+// 写入值范围校验（按类型）
+function validateValue(t: string, raw: string): string | null {
+	const v = raw.trim();
+	if (t === "bool") {
+		return ["true", "false", "1", "0"].includes(v.toLowerCase())
+			? null
+			: "布尔值只能为 true/false/1/0";
+	}
+	if (t === "string") return null;
+	if (t === "float" || t === "double") {
+		return Number.isFinite(Number(v)) ? null : "请输入合法浮点数";
+	}
+	const n = Number(v);
+	if (!Number.isInteger(n)) return "请输入整数";
+	const ranges: Record<string, [number, number]> = {
+		int16: [-32768, 32767],
+		uint16: [0, 65535],
+		int: [-2147483648, 2147483647],
+		uint32: [0, 4294967295],
+	};
+	const range = ranges[t];
+	if (range && (n < range[0] || n > range[1]))
+		return `数值超出 ${t} 范围 [${range[0]}, ${range[1]}]`;
+	return null;
 }
 
 const loadDevices = async () => {
@@ -428,6 +475,26 @@ const writeData = async () => {
 		return;
 	}
 
+	const invalid = validateValue(rwForm.dataType, rwForm.value);
+	if (invalid) {
+		ElMessage.warning(invalid);
+		return;
+	}
+
+	try {
+		await ElMessageBox.confirm(
+			`确定写入 ${rwForm.address}（${rwForm.dataType}）= ${rwForm.value} ？`,
+			"写入确认",
+			{
+				confirmButtonText: "写入",
+				cancelButtonText: "取消",
+				type: "warning",
+			},
+		);
+	} catch {
+		return;
+	}
+
 	try {
 		const res = await machineConnectionPointsApi.writeTags(
 			deviceForm.deviceId,
@@ -506,6 +573,28 @@ const batchWrite = async () => {
 	const valid = batchItems.value.filter((i) => i.address);
 	if (valid.length === 0) {
 		ElMessage.warning("请添加写入项目");
+		return;
+	}
+
+	const invalid = valid
+		.map((i) => validateValue(i.dataType, i.value))
+		.find((m) => m);
+	if (invalid) {
+		ElMessage.warning(invalid);
+		return;
+	}
+
+	try {
+		await ElMessageBox.confirm(
+			`确定批量写入 ${valid.length} 个项目？`,
+			"写入确认",
+			{
+				confirmButtonText: "写入",
+				cancelButtonText: "取消",
+				type: "warning",
+			},
+		);
+	} catch {
 		return;
 	}
 

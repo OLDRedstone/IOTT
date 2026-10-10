@@ -73,7 +73,7 @@
 							label="最后更新"
 							width="180"
 						/>
-						<el-table-column label="操作" width="150">
+						<el-table-column label="操作" width="240">
 							<template #default="scope">
 								<el-button
 									type="primary"
@@ -81,6 +81,13 @@
 									@click="viewDetails(scope.row)"
 								>
 									查看详情
+								</el-button>
+								<el-button
+									type="warning"
+									size="small"
+									@click="diagnoseDevice(scope.row)"
+								>
+									健康诊断
 								</el-button>
 							</template>
 						</el-table-column>
@@ -157,7 +164,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { VideoCamera } from "@element-plus/icons-vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { machineConnectionDevicesApi, type DeviceDto } from "@/api/machineConnectionDevices";
 
 interface Device {
@@ -264,6 +271,27 @@ const stopMonitoring = () => {
 const viewDetails = (device: Device) => {
 	selectedDevice.value = { ...device, statusLogs: [...device.statusLogs] };
 	detailDialogVisible.value = true;
+};
+
+const diagnoseDevice = async (device: Device) => {
+	try {
+		const [diag, stats] = await Promise.all([
+			machineConnectionDevicesApi.diagnose(device.id),
+			machineConnectionDevicesApi.connectionStats(device.id, 24),
+		]);
+		const lines = [
+			`可达性：${diag.reachable ? "可达" : "不可达"}（模式 ${diag.mode}）`,
+			`端点：${diag.endpoint}  协议：${diag.protocol}`,
+			`原因：${diag.reason}`,
+			`近24h：成功率 ${stats.successRate}%（${stats.success}/${stats.total}），平均 ${stats.avgLatencyMs} ms，最大 ${stats.maxLatencyMs} ms，断线 ${stats.disconnectEvents} 次`,
+			diag.suggestions.length ? `建议：\n- ${diag.suggestions.join("\n- ")}` : "",
+		].filter(Boolean);
+		await ElMessageBox.alert(lines.join("\n"), `健康诊断：${device.name}`, {
+			confirmButtonText: "关闭",
+		});
+	} catch (error) {
+		ElMessage.error(error instanceof Error ? error.message : "诊断失败");
+	}
 };
 
 onMounted(loadDevices);

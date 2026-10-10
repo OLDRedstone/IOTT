@@ -106,14 +106,22 @@
 				<div class="card-header">
 					<span>地址空间</span>
 					<div class="header-actions">
-						<el-button
-							type="primary"
-							size="small"
-							@click="exportAddresses"
-						>
-							<el-icon><Download /></el-icon>
-							导出地址
-						</el-button>
+						<el-dropdown @command="exportAddresses">
+							<el-button type="primary" size="small">
+								<el-icon><Download /></el-icon>
+								导出地址
+							</el-button>
+							<template #dropdown>
+								<el-dropdown-menu>
+									<el-dropdown-item command="XLSX">
+										Excel (.xlsx)
+									</el-dropdown-item>
+									<el-dropdown-item command="CSV">CSV</el-dropdown-item>
+									<el-dropdown-item command="JSON">JSON</el-dropdown-item>
+									<el-dropdown-item command="XML">XML</el-dropdown-item>
+								</el-dropdown-menu>
+							</template>
+						</el-dropdown>
 						<el-button
 							type="success"
 							size="small"
@@ -887,7 +895,9 @@ const resetSearch = () => {
 };
 
 // 导出地址 = 导出后端地址空间 CSV
-const exportAddresses = async () => {
+const exportAddresses = async (
+	format: "CSV" | "XLSX" | "JSON" | "XML" = "XLSX",
+) => {
 	if (!form.deviceId) {
 		ElMessage.warning("请先选择设备");
 		return;
@@ -896,7 +906,7 @@ const exportAddresses = async () => {
 		const { blob, fileName } =
 			await machineConnectionPointsApi.exportAddressSpace(
 				form.deviceId,
-				"CSV",
+				format,
 			);
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement("a");
