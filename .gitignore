@@ -37,6 +37,7 @@ dist-ssr/
 !.env.example
 !.env.sample
 appsettings.Local.json
+iott-launcher.config.json
 
 # ---- Logs & runtime ----
 logs/
