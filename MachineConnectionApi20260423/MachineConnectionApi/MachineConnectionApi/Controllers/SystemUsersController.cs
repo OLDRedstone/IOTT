@@ -16,14 +16,33 @@ public sealed class SystemUsersController : ControllerBase
     ];
 
     private readonly IUserStore _store;
+    private readonly IRoleStore _roles;
     private readonly ISystemActivityLog _activityLog;
     private readonly IAuthService _auth;
 
-    public SystemUsersController(IUserStore store, ISystemActivityLog activityLog, IAuthService auth)
+    public SystemUsersController(IUserStore store, IRoleStore roles, ISystemActivityLog activityLog, IAuthService auth)
     {
         _store = store;
+        _roles = roles;
         _activityLog = activityLog;
         _auth = auth;
+    }
+
+    /// <summary>生效权限 = 被赋角色的权限并集 ∪ 直接权限（多角色）。</summary>
+    private IReadOnlyList<string> MergeRolePermissions(IReadOnlyList<string> roles, IReadOnlyList<string> permissions)
+    {
+        if (roles is not { Count: > 0 }) return permissions;
+        var all = _roles.ReadAll();
+        var set = new HashSet<string>(permissions, StringComparer.OrdinalIgnoreCase);
+        foreach (var key in roles)
+        {
+            var role = all.FirstOrDefault(r =>
+                string.Equals(r.Key, key, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(r.Id, key, StringComparison.OrdinalIgnoreCase));
+            if (role is null) continue;
+            foreach (var p in role.Permissions) set.Add(p);
+        }
+        return set.ToList();
     }
 
     // 凭据只存不出：所有对外返回一律抹掉 PasswordHash
@@ -50,6 +69,7 @@ public sealed class SystemUsersController : ControllerBase
             {
                 Id = Guid.NewGuid().ToString("N"), Password = "******",
                 PasswordHash = PasswordHasher.Hash(input.Password),
+                Permissions = MergeRolePermissions(input.Roles, input.Permissions),
             };
             rows.Add(item);
             return (true, item);
@@ -74,6 +94,7 @@ public sealed class SystemUsersController : ControllerBase
             rows[index] = input with
             {
                 Id = id, Password = "******", PasswordHash = newHash,
+                Permissions = MergeRolePermissions(input.Roles, input.Permissions),
             };
             return rows[index];
         });
