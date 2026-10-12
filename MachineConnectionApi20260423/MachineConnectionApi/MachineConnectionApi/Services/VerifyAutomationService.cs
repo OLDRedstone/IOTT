@@ -44,7 +44,10 @@ public sealed partial class VerifyAutomationService : IVerifyAutomationService
         _configuration = configuration;
         _logger = logger;
         _evaluationIndicators = evaluationIndicators;
-        _measurements = measurements ?? new HttpVerifyMeasurementAdapter(httpClientFactory);
+        // 默认走真实证据适配器；仅当显式开启 Verify:Simulate 时使用测试用模拟适配器（不产生真实通讯证据）。
+        _measurements = measurements ?? (_configuration.GetValue<bool>("Verify:Simulate")
+            ? new SimulatedVerifyMeasurementAdapter()
+            : new HttpVerifyMeasurementAdapter(httpClientFactory));
         _clock = clock ?? new SystemVerifyTestClock();
     }
 
