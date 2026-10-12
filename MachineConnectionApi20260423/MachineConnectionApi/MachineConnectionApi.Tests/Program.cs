@@ -9,22 +9,75 @@ internal static class Program
 {
     private static async Task Main(string[] args)
     {
+        if (args.Contains("--cs-ftp-integrity"))
+        {
+            await MachineConnectionApi.Tests.CsConnectivityServiceRegressionTests.FtpRoundTripIntegrity();
+            Console.WriteLine("C/S FTP integrity regression tests passed (loopback peers).");
+            return;
+        }
+        if (args.Contains("--evaluation-pdf"))
+        {
+            MachineConnectionApi.Tests.EvaluationPdfLayoutRegressionTests.RunAll(
+                Environment.GetEnvironmentVariable("EVALUATION_PDF_OUTPUT"));
+            Console.WriteLine("Evaluation PDF layout regression tests passed.");
+            return;
+        }
+        if (args.Contains("--verify-runtime"))
+        {
+            await MachineConnectionApi.Tests.VerifyTaskRuntimeRegressionTests.RunAll();
+            Console.WriteLine("Verify task runtime regression tests passed.");
+            return;
+        }
+        if (args.Contains("--verify-http-transfer"))
+        {
+            await MachineConnectionApi.Tests.VerifyHttpTransferRegressionTests.RunAll();
+            Console.WriteLine("Verify HTTP transfer regression tests passed.");
+            return;
+        }
+        if (args.Contains("--verify-tasks"))
+        {
+            await MachineConnectionApi.Tests.VerifyTaskRunnerRegressionTests.RunAll();
+            await MachineConnectionApi.Tests.VerifyTaskProgressRegressionTests.RunAll();
+            await MachineConnectionApi.Tests.CsConnectivityServiceRegressionTests.ParallelTargetScheduling();
+            await MachineConnectionApi.Tests.JsonFileStoreRegressionTests.ConcurrentUpdatesDoNotLoseRows();
+            Console.WriteLine("Parallel verification task regression tests passed.");
+            return;
+        }
+        if (args.Contains("--verify-task-runner"))
+        {
+            await MachineConnectionApi.Tests.VerifyTaskRunnerRegressionTests.RunAll();
+            await MachineConnectionApi.Tests.VerifyTaskProgressRegressionTests.RunAll();
+            await MachineConnectionApi.Tests.VerifyTaskRuntimeRegressionTests.RunAll();
+            Console.WriteLine("Verify task runner regression tests passed.");
+            return;
+        }
         if (args.Contains("--evaluation-knowledge"))
         {
             MachineConnectionApi.Tests.EvaluationKnowledgeRegressionTests.RunAll();
+            MachineConnectionApi.Tests.EvaluationKnowledgeAutomationRegressionTests.RunAll();
+            MachineConnectionApi.Tests.EvaluationPdfLayoutRegressionTests.RunAll();
             Console.WriteLine("Evaluation knowledge regression tests passed.");
             return;
         }
         if (args.Contains("--evaluation-pipeline"))
         {
             await MachineConnectionApi.Tests.EvaluationPipelineRegressionTests.RunAll();
+            await MachineConnectionApi.Tests.VerifyHttpTransferRegressionTests.RunAll();
             Console.WriteLine("Evaluation pipeline regression tests passed.");
             return;
         }
         if (args.Contains("--evaluation-indicators"))
         {
             await MachineConnectionApi.Tests.EvaluationIndicatorRegressionTests.RunAll();
+            MachineConnectionApi.Tests.EvaluationThresholdRegressionTests.RunAll();
             Console.WriteLine("Evaluation indicator regression tests passed.");
+            return;
+        }
+        if (args.Contains("--mysql"))
+        {
+            await MachineConnectionApi.Tests.MySqlPersistenceRegressionTests.RunAll();
+            await MachineConnectionApi.Tests.DatacollectionSaveRegressionTests.RunAll();
+            Console.WriteLine("MySQL persistence regression tests passed.");
             return;
         }
         if (args.Contains("--metric-store"))
@@ -73,9 +126,7 @@ internal static class Program
         }
         await MachineConnectionApi.Tests.DatacollectionSaveRegressionTests.RunAll();
         MachineConnectionApi.Tests.ApiAuthorizationRegressionTests.RunAll();
-        await MachineConnectionApi.Tests.VerifyTaskRunnerRegressionTests.DeviceSelectionIsNormalizedAndConflictsFail();
-        await MachineConnectionApi.Tests.VerifyTaskRunnerRegressionTests.ConcurrentExecutionIsRejected();
-        await MachineConnectionApi.Tests.VerifyTaskRunnerRegressionTests.ExecutionFailureReleasesTaskForRetry();
+        await MachineConnectionApi.Tests.VerifyTaskRunnerRegressionTests.RunAll();
         await MachineConnectionApi.Tests.JsonFileStoreRegressionTests.ConcurrentUpdatesDoNotLoseRows();
         await MachineConnectionApi.Tests.DeviceUpsertRegressionTests.RunAll();
         await MachineConnectionApi.Tests.CsConnectivityServiceRegressionTests.RunAll();

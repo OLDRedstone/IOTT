@@ -19,6 +19,9 @@ public class UpdateDeviceCommandHandler : IRequestHandler<UpdateDeviceCommand, D
             ?? throw new DeviceNotFoundException(command.DeviceId);
 
         var req = command.Request;
+        var properties = SiemensS7ConnectionOptions.Normalize(req.Protocol ?? device.Protocol, req.Model ?? device.Model,
+            req.ExtendedProperties ?? device.ConnectionConfig.ExtendedProperties,
+            req.ExtendedProperties is null ? device.Protocol : null);
         if (req.Name != null) device.Name = req.Name;
         if (req.Type.HasValue) device.Type = req.Type.Value;
         if (req.Brand != null) device.Brand = req.Brand;
@@ -44,7 +47,7 @@ public class UpdateDeviceCommandHandler : IRequestHandler<UpdateDeviceCommand, D
             Password = req.Password ?? config.Password,
             ConnectTimeout = req.ConnectTimeoutMs.HasValue ? TimeSpan.FromMilliseconds(req.ConnectTimeoutMs.Value) : config.ConnectTimeout,
             ReadTimeout = req.ReadTimeoutMs.HasValue ? TimeSpan.FromMilliseconds(req.ReadTimeoutMs.Value) : config.ReadTimeout,
-            ExtendedProperties = req.ExtendedProperties ?? config.ExtendedProperties,
+            ExtendedProperties = properties,
             Transfer = transfer,
         };
 

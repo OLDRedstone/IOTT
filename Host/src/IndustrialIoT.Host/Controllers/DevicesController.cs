@@ -48,8 +48,12 @@ public class DevicesController : ControllerBase
         [FromBody] CreateDeviceRequest request,
         CancellationToken ct = default)
     {
-        var result = await _mediator.Send(new CreateDeviceCommand(request), ct);
-        return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
+        try
+        {
+            var result = await _mediator.Send(new CreateDeviceCommand(request), ct);
+            return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
+        }
+        catch (ArgumentException ex) { return BadRequest(new { error = ex.Message }); }
     }
 
     /// <summary>更新设备</summary>
@@ -59,13 +63,17 @@ public class DevicesController : ControllerBase
         [FromBody] UpdateDeviceRequest request,
         CancellationToken ct = default)
     {
-        var result = await _mediator.Send(new UpdateDeviceCommand(id, request), ct);
+        try
+        {
+            var result = await _mediator.Send(new UpdateDeviceCommand(id, request), ct);
 
-        // The pooled connection was built from the old config — drop it so the next
-        // operation reconnects with the new host/port/protocol settings
-        await _pool.ReleaseAsync(id, ct);
+            // The pooled connection was built from the old config — drop it so the next
+            // operation reconnects with the new host/port/protocol settings
+            await _pool.ReleaseAsync(id, ct);
 
-        return Ok(result);
+            return Ok(result);
+        }
+        catch (ArgumentException ex) { return BadRequest(new { error = ex.Message }); }
     }
 
     /// <summary>删除设备</summary>

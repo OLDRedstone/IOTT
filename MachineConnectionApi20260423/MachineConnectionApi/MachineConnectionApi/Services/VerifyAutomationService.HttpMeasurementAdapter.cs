@@ -117,8 +117,10 @@ public sealed partial class HttpVerifyMeasurementAdapter : IVerifyMeasurementAda
         var protocol = EvaluationAutomationRules.NormalizeProtocol(target.ResolvedTransferProtocol ?? target.Transfer?.Protocol ?? target.Protocol);
         if (IsSimulatedProtocol(protocol)) return Unknown("模拟驱动目录不是实际传输协议证据。", protocol);
         if (!SafeDirectory(directory)) return Unknown("测试目录无效，没有访问设备。", protocol);
+        if (protocol == "NFS")
+            return Unknown("NFS 目录可能来自客户端缓存，不计作本轮通讯证据；请使用文件上传及无缓存回读验证。", protocol);
         if (protocol is not ("FTP" or "SMB" or "NC-Link" or "FOCAS"))
-            return Unknown("该驱动目录接口尚不能证明真实协议读取；NFS本地预挂载目录和静态地址树不计作证据。", protocol);
+            return Unknown("该驱动目录接口尚不能证明真实协议读取；静态地址树不计作证据。", protocol);
         if (protocol == "FOCAS" && !string.Equals(directory.Replace('\\', '/').TrimEnd('/'), "/Programs", StringComparison.OrdinalIgnoreCase))
             return Unknown("FOCAS只有显式/Programs目录可用于验证，静态根节点不作通讯证据。", protocol);
         await target.VerificationGate.WaitAsync(ct);

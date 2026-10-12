@@ -11,12 +11,15 @@ const filename = "DeviceConfigView.vue";
 const component = readFileSync(new URL("../src/views/plc/DeviceConfigView.vue", import.meta.url), "utf8");
 const { descriptor, errors } = parse(component, { filename });
 assert.equal(errors.length, 0);
+const s7 = {};
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL("../src/utils/plcS7Configuration.ts", import.meta.url), "utf8"),
+    { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText, { exports: s7 });
 const script = descriptor.scriptSetup.content;
 const parsed = ts.createSourceFile(filename, script, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 const names = ["loadCapabilities", "capabilities", "capabilitiesError", "protocolOptions", "protocolGroups",
     "currentDevice", "blankDevice", "handleProtocolChange", "saveDevice", "mapToPlc", "brandOptions",
     "openAddDeviceDialog", "openEditDeviceDialog", "openCapabilitiesDialog", "refreshDeviceList",
-    "treeKeyword", "treeRef", "deviceTree", "filterTreeNode", "isSerialConnection"];
+    "treeKeyword", "treeRef", "deviceTree", "filterTreeNode", "isSerialConnection", "s7Defaults"];
 const executable = ts.transpileModule(
     parsed.statements.filter((statement) => !ts.isImportDeclaration(statement))
         .map((statement) => statement.getText(parsed)).join("\n")
@@ -33,6 +36,7 @@ function setup(context, fetchCapabilities = async () => [{ brand: "欧姆龙", p
         return { upstreamSynced: true };
     };
     const sandbox = vm.createContext({
+        ...s7,
         computed, reactive, ref, watch, onMounted() {}, useRouter: () => ({ push() {} }),
         ElMessage: { error() {}, success() {}, warning: (message) => warnings.push(message) },
         machineConnectionDevicesApi: { list: async () => [], create: capture("create"), update: capture("update") },
@@ -49,6 +53,7 @@ function fillNew(handlers, protocol) {
         ip: "192.0.2.10", port: 9600, series: "H3U",
     });
     handlers.handleProtocolChange(protocol);
+    if (protocol === "SiemensS7") handlers.currentDevice.s7CpuType = "S1200";
 }
 
 async function flush() {
@@ -199,6 +204,83 @@ for (const [protocol, brand] of [["ModbusRTU", "PLC"], ["InovanceSerial", "汇�
         assert.deepEqual(Object.fromEntries(["PortName", "BaudRate", "DataBits", "StopBits", "Parity"]
             .map((key) => [key, body.extendedProperties[key]])),
         { PortName: "COM9", BaudRate: "115200", DataBits: "7", StopBits: "Two", Parity: "Even" });
+    });
+}
+
+test("S7 legacy aliases round-trip through the actual edit and save handlers", async (context) => {
+    const fixture = setup(context);
+    const original = { id: "s7", name: "PLC", brand: "Siemens", model: "CPU part number", protocol: "SiemensS7",
+        host: "192.0.2.10", port: 102, status: "Offline",
+        extendedProperties: { deviceCode: "S7-1", cputype: "s7-300", rack: "1", slot: "5", StringLength: "40" } };
+    fixture.handlers.openEditDeviceDialog(fixture.handlers.mapToPlc(original));
+    assert.equal(fixture.handlers.currentDevice.s7CpuType, "S300");
+    assert.equal(fixture.handlers.currentDevice.s7Rack, 1);
+    assert.equal(fixture.handlers.currentDevice.s7Slot, 5);
+    await fixture.handlers.saveDevice();
+    const properties = fixture.writes[0].body.extendedProperties;
+    assert.equal(properties.PlcType, "S300");
+    assert.equal(properties.Rack, "1");
+    assert.equal(properties.Slot, "5");
+    assert.equal(properties.StringLength, "40");
+    assert.equal(properties.cputype, undefined);
+    assert.equal(properties.rack, undefined);
+    assert.equal(original.extendedProperties.cputype, "s7-300");
+});
+
+test("S7 automatic CPU and omitted slot follow model changes after an edit round-trip", async (context) => {
+    const fixture = setup(context);
+    fillNew(fixture.handlers, "SiemensS7");
+    Object.assign(fixture.handlers.currentDevice, { model: "S7-300", s7CpuType: "", port: 502 });
+    fixture.handlers.handleProtocolChange("SiemensS7");
+    assert.equal(fixture.handlers.currentDevice.port, 102);
+    assert.equal(fixture.handlers.s7Defaults.value.slot, 2);
+    await fixture.handlers.saveDevice();
+    const body = fixture.writes[0].body;
+    assert.equal(body.extendedProperties.PlcType, undefined);
+    assert.equal(body.extendedProperties.Slot, undefined);
+    fixture.handlers.openEditDeviceDialog(fixture.handlers.mapToPlc({ ...body, id: "s7", status: "Offline" }));
+    fixture.handlers.currentDevice.model = "S7-400";
+    assert.equal(fixture.handlers.s7Defaults.value.slot, 3);
+    await fixture.handlers.saveDevice();
+    assert.equal(fixture.writes[1].body.model, "S7-400");
+    assert.equal(fixture.writes[1].body.extendedProperties.Slot, undefined);
+    fixture.handlers.currentDevice.s7CpuType = "S200Smart";
+    assert.equal(fixture.handlers.s7Defaults.value.slot, 0);
+});
+
+test("S7 protocol switching preserves explicit edits without leaking settings to another driver", async (context) => {
+    const fixture = setup(context);
+    fixture.handlers.openEditDeviceDialog(fixture.handlers.mapToPlc({ id: "s7", name: "PLC", brand: "Siemens",
+        model: "S7-300", protocol: "SiemensS7", host: "192.0.2.10", port: 102, status: "Offline",
+        extendedProperties: { deviceCode: "S7-1", PlcType: "S300", Rack: "0", Slot: "0", StringLength: "40" } }));
+    fixture.handlers.currentDevice.s7CpuType = "S400";
+    fixture.handlers.currentDevice.protocol = "FINS";
+    fixture.handlers.handleProtocolChange("FINS");
+    await fixture.handlers.saveDevice();
+    assert.equal(fixture.writes[0].body.extendedProperties.PlcType, undefined);
+    assert.equal(fixture.writes[0].body.extendedProperties.Slot, undefined);
+    fixture.handlers.currentDevice.protocol = "SiemensS7";
+    fixture.handlers.handleProtocolChange("SiemensS7");
+    await fixture.handlers.saveDevice();
+    const properties = fixture.writes[1].body.extendedProperties;
+    assert.equal(properties.PlcType, "S400");
+    assert.equal(properties.Rack, "0");
+    assert.equal(properties.Slot, "0");
+    assert.equal(properties.StringLength, "40");
+    fixture.handlers.openAddDeviceDialog();
+    assert.equal(fixture.handlers.currentDevice.s7CpuType, "");
+    assert.equal(fixture.handlers.currentDevice.s7Slot, undefined);
+});
+
+for (const fields of [{ s7CpuType: "S7301" }, { s7Rack: -1 }, { s7Rack: 8 }, { s7Slot: 32 },
+    { s7Slot: 1.5 }, { s7CpuType: "S200Smart", s7Slot: 1 }, { s7CpuType: "", model: "Unknown CPU" }]) {
+    test("S7 invalid parameters are rejected before saving: " + JSON.stringify(fields), async (context) => {
+        const fixture = setup(context);
+        fillNew(fixture.handlers, "SiemensS7");
+        Object.assign(fixture.handlers.currentDevice, fields);
+        await fixture.handlers.saveDevice();
+        assert.equal(fixture.writes.length, 0);
+        assert.equal(fixture.warnings.length, 1);
     });
 }
 

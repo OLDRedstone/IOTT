@@ -14,6 +14,7 @@ internal static class SmbRegressionTests
 
     public static async Task RunAll()
     {
+        await SmbVerificationRegressionTests.RunAll();
         await Regression.Run("SMB short writes preserve full upload", () => ShortWrites(false));
         await Regression.Run("SMB short writes preserve resumed upload", () => ShortWrites(true));
         await Regression.Run("SMB zero write fails without looping", ZeroWrite);
@@ -70,7 +71,7 @@ internal static class SmbRegressionTests
         Regression.Require(result.Success && destination.ToArray().SequenceEqual(Payload), "Full download failed");
     }
 
-    private sealed class Fixture : IAsyncDisposable
+    internal sealed class Fixture : IAsyncDisposable
     {
         public SmbTransferDriver Driver { get; } = new(NullLogger<SmbTransferDriver>.Instance);
         public SmbFileStoreProbe Probe { get; }

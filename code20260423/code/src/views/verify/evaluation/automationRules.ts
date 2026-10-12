@@ -6,7 +6,7 @@ export const metricNames: Record<string, string> = {
 };
 export const readDataTypes = ["Bool", "Int8", "UInt8", "Int16", "UInt16", "Int32", "UInt32", "Int64", "UInt64", "Float", "Double", "String", "ByteArray"];
 export const defaultTestSettings = (): EvaluationTestSettings => ({
-	durationMinutes: 30, sampleIntervalSeconds: 5, maxConnections: 4, failureLimit: 3, concurrencyMode: "devices",
+	durationMinutes: 30, sampleIntervalSeconds: 5, maxConnections: 100, failureLimit: 3, concurrencyMode: "devices",
 	readAddress: "", readDataType: "String", targetDirectory: "/",
 });
 
@@ -15,7 +15,7 @@ export function defaultFor(metricId?: string | null): EvaluationAutomationRule |
 	const defaults: Record<string, [EvaluationUnit, [number, number][]]> = {
 		"industrial-protocol": ["%", []],
 		"communication-stability": ["min", [[30, 100], [20, 80], [10, 60], [0, 0]]],
-		"max-connections": ["count", [[4, 100], [3, 80], [2, 60], [0, 0]]],
+		"max-connections": ["count", [[100, 100], [0, 0]]],
 		"transfer-protocol": ["count", [[2, 100], [1, 60], [0, 0]]],
 		"file-integrity": ["%", [[100, 100], [75, 80], [50, 60], [0, 0]]],
 		"transfer-speed": ["MB/s", [[10, 100], [5, 80], [2, 60], [0, 0]]],
@@ -23,7 +23,8 @@ export function defaultFor(metricId?: string | null): EvaluationAutomationRule |
 	};
 	const entry = Object.prototype.hasOwnProperty.call(defaults, metricId ?? "") ? defaults[metricId ?? ""] : undefined;
 	return entry ? {
-		unit: entry[0], passRule: null, scoringMode: metricId === "industrial-protocol" ? "linear" : "bands",
+		unit: entry[0], passRule: metricId === "max-connections" ? { comparison: "gte", threshold: 100, unit: "count" } : null,
+		scoringMode: metricId === "industrial-protocol" ? "linear" : "bands",
 		scoreBands: entry[1].map(([min, score]) => ({ min, score })), test: defaultTestSettings(),
 	} : null;
 }
@@ -80,7 +81,7 @@ export function validate(item: EvaluationItem): string | undefined {
 	const test = rule.test;
 	if (!test || !Number.isFinite(test.durationMinutes) || test.durationMinutes <= 0 || test.durationMinutes > 1440
 		|| !Number.isFinite(test.sampleIntervalSeconds) || test.sampleIntervalSeconds <= 0 || test.sampleIntervalSeconds > 86400
-		|| !Number.isInteger(test.maxConnections) || test.maxConnections < 1 || test.maxConnections > 64
+		|| !Number.isInteger(test.maxConnections) || test.maxConnections < 1 || test.maxConnections > 100
 		|| !Number.isInteger(test.failureLimit) || test.failureLimit < 1 || test.failureLimit > 100
 		|| !["devices", "connections", "sessions"].includes(test.concurrencyMode)) return "请检查测试时长、采样间隔、并发上限与失败次数";
 	if (typeof test.readAddress !== "string" || test.readAddress.length > 500 || /[\u0000-\u001f\u007f-\u009f]/u.test(test.readAddress)

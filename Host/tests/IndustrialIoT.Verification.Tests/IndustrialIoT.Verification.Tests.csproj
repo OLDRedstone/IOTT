@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <!-- Source-only fixtures: no project references, database packages or shared build outputs. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <Using Include="Microsoft.Extensions.Logging" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Compile Include="../../src/IndustrialIoT.Domain/Enums/*.cs" Link="Domain/Enums/%(Filename)%(Extension)" />
+    <Compile Include="../../src/IndustrialIoT.Domain/Entities/Device.cs" Link="Domain/Device.cs" />
+    <Compile Include="../../src/IndustrialIoT.Domain/Entities/CollectionProfile.cs" Link="Domain/CollectionProfile.cs" />
+    <Compile Include="../../src/IndustrialIoT.Domain/ValueObjects/*.cs" Link="Domain/%(Filename)%(Extension)" />
+    <Compile Include="../../src/IndustrialIoT.Domain/Interfaces/IDeviceRepository.cs" Link="Domain/IDeviceRepository.cs" />
+    <Compile Include="../../src/IndustrialIoT.Protocols/Abstractions/*.cs" Link="Protocols/%(Filename)%(Extension)" />
+    <Compile Include="../../src/IndustrialIoT.Protocols/Registration/IDriverRegistry.cs" Link="Protocols/IDriverRegistry.cs" />
+    <Compile Include="../../src/IndustrialIoT.Protocols/Models/TagValue.cs" Link="Protocols/TagValue.cs" />
+    <Compile Include="../../src/IndustrialIoT.Protocols/Models/WriteResult.cs" Link="Protocols/WriteResult.cs" />
+    <Compile Include="../../src/IndustrialIoT.Protocols/Models/AddressNode.cs" Link="Protocols/AddressNode.cs" />
+    <Compile Include="../../src/IndustrialIoT.Protocols/Models/TransferModels.cs" Link="Protocols/TransferModels.cs" />
+    <Compile Include="../../src/IndustrialIoT.Protocols/Models/ProgramFileEntry.cs" Link="Protocols/ProgramFileEntry.cs" />
+    <Compile Include="../../src/IndustrialIoT.Infrastructure/BackgroundServices/ConnectionPoolService.cs" Link="Host/ConnectionPoolService.cs" />
+    <Compile Include="../../src/IndustrialIoT.Host/Services/PooledDriverAccessor.cs" Link="Host/PooledDriverAccessor.cs" />
+    <Compile Include="../../src/IndustrialIoT.Host/Services/VerificationConfiguration.cs" Link="Host/VerificationConfiguration.cs" />
+    <Compile Include="../../src/IndustrialIoT.Host/Services/VerificationDriverExecutor.cs" Link="Host/VerificationDriverExecutor.cs" />
+    <Compile Include="../../src/IndustrialIoT.Host/Services/ProgramTransferTaskModels.cs" Link="Host/ProgramTransferTaskModels.cs" />
+    <Compile Include="../../src/IndustrialIoT.Host/Services/ProgramTransferFileBrowserService.cs" Link="Host/ProgramTransferFileBrowserService.cs" />
+    <Compile Include="../../src/IndustrialIoT.Host/Controllers/DataReadWriteController.cs" Link="Host/DataReadWriteController.cs" />
+    <Compile Include="../../src/IndustrialIoT.Host/Controllers/DataReadWriteController.Verification.cs" Link="Host/DataReadWriteController.Verification.cs" />
+    <Compile Include="../../../MachineConnectionApi20260423/MachineConnectionApi/MachineConnectionApi/Models/EvaluationIndicatorModels.cs" Link="Gateway/EvaluationIndicatorModels.cs" />
+    <Compile Include="../../../MachineConnectionApi20260423/MachineConnectionApi/MachineConnectionApi/Services/EvaluationAutomationRules.cs" Link="Gateway/EvaluationAutomationRules.cs" />
+    <Compile Include="../../../MachineConnectionApi20260423/MachineConnectionApi/MachineConnectionApi/Services/VerifyAutomationService.MeasurementAdapter.cs" Link="Gateway/MeasurementAdapter.cs" />
+    <Compile Include="../../../MachineConnectionApi20260423/MachineConnectionApi/MachineConnectionApi/Services/VerifyAutomationService.HttpMeasurementAdapter.cs" Link="Gateway/HttpMeasurementAdapter.cs" />
+    <Compile Include="../../../MachineConnectionApi20260423/MachineConnectionApi/MachineConnectionApi.Tests/EvaluationPipelineRegressionTests.HttpAdapter.cs" Link="Gateway/HttpAdapterRegression.cs" />
+  </ItemGroup>
+</Project>

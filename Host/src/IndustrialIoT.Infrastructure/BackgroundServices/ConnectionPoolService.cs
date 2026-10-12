@@ -70,8 +70,9 @@ public class ConnectionPoolService : BackgroundService, IDeviceConnectionPool
                 var device = await repo.GetByIdAsync(deviceId, ct)
                     ?? throw new InvalidOperationException($"Device {deviceId} not found");
 
+                var config = SiemensS7ConnectionOptions.ForConnection(device.Protocol, device.Model, device.ConnectionConfig);
                 driver = _factory.Create(device.Protocol, device.Brand, device.Model);
-                var result = await driver.ConnectAsync(device.ConnectionConfig, ct);
+                var result = await driver.ConnectAsync(config, ct);
                 if (!result.Success)
                     throw new InvalidOperationException($"Failed to connect to device {deviceId}: {result.ErrorMessage}");
 

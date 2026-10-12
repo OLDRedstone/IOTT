@@ -21,7 +21,7 @@ using Microsoft.Extensions.Logging;
 ///   RootRelativePath — 传输操作的根目录（相对 MountPoint），默认空
 /// </summary>
 [ProtocolDriver(ProtocolType.NFS, "NFS", "FANUC", "Makino", "*")]
-public sealed class NfsTransferDriver : IProtocolDriver, INCProgramTransfer, IAddressSpaceBrowser
+public sealed partial class NfsTransferDriver : IProtocolDriver, INCProgramTransfer, IAddressSpaceBrowser
 {
     private const int BufferSize = 81920;
     private readonly ILogger<NfsTransferDriver> _logger;
@@ -50,9 +50,12 @@ public sealed class NfsTransferDriver : IProtocolDriver, INCProgramTransfer, IAd
                 throw new DirectoryNotFoundException($"NFS mount point '{mount}' does not exist — please mount first");
 
             _mountPoint = Path.GetFullPath(mount);
+            _verificationHost = config.Host;
             var rel = config.ExtendedProperties.GetValueOrDefault("RootRelativePath") ?? "";
             _rootDir = ResolveWithinRoot(_mountPoint, rel);
-            Directory.CreateDirectory(_rootDir);
+            if (_expectedVerificationMount is null) Directory.CreateDirectory(_rootDir);
+            else if (CaptureVerificationMount(config) != _expectedVerificationMount)
+                throw new IOException("NFS mount changed after the verification snapshot.");
 
             _logger.LogInformation("NFS driver attached to mount point {MountPoint} (root={Root})", mount, _rootDir);
             SetState(ConnectionState.Connected);

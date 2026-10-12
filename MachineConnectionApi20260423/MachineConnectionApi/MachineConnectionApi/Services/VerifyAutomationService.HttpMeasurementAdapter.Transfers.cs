@@ -49,8 +49,10 @@ public sealed partial class HttpVerifyMeasurementAdapter
                         target.VerificationConfigurationChanged = true;
                         return TransferUnknown("Host实际设备/传输配置与本轮冻结目标不符；不向变化或未知目标写入。");
                     }
-                    if (!snapshot.Supported || EvaluationAutomationRules.NormalizeProtocol(snapshot.Protocol) != "FTP")
-                        return TransferUnknown("实际协议尚未实现验证专用原子创建；当前支持FTP（含驱动配置的FTPS），不冒险写FOCAS内部程序号或未知协议。");
+                    if (!snapshot.Supported || EvaluationAutomationRules.NormalizeProtocol(snapshot.Protocol) is not ("FTP" or "SMB" or "NFS"))
+                        return TransferUnknown(string.IsNullOrWhiteSpace(snapshot.Detail)
+                            ? "实际协议未提供验证专用原子创建；支持FTP、SMB及已核实操作系统挂载身份的NFS。"
+                            : snapshot.Detail);
                     state.Snapshot = snapshot;
                 }
             }
@@ -151,6 +153,7 @@ public sealed partial class HttpVerifyMeasurementAdapter
         public string DeviceId { get; set; } = "";
         public string Token { get; set; } = "";
         public bool Supported { get; set; }
+        public string Detail { get; set; } = "";
         public string Protocol { get; set; } = "";
         public TransferPrimary? Primary { get; set; }
     }

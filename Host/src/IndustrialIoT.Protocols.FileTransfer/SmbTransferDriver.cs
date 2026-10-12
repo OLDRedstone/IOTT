@@ -12,7 +12,7 @@ using SMBLibrary.Client;
 using ConnectionState = IndustrialIoT.Domain.Enums.ConnectionState;
 
 [ProtocolDriver(ProtocolType.SMB, "SMB", "*")]
-public class SmbTransferDriver : IProtocolDriver, INCProgramTransfer, IAddressSpaceBrowser
+public partial class SmbTransferDriver : IProtocolDriver, INCProgramTransfer, IAddressSpaceBrowser
 {
     private readonly ILogger<SmbTransferDriver> _logger;
     private SMB2Client? _smbClient;
@@ -38,6 +38,13 @@ public class SmbTransferDriver : IProtocolDriver, INCProgramTransfer, IAddressSp
 
     public async Task<ConnectionResult> ConnectAsync(DeviceConnectionConfig config, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+        if (config.Port != 445)
+        {
+            var error = $"SMB Direct TCP requires port 445; configured port {config.Port} is unsupported by SMBLibrary 1.5.6.2.";
+            TransitionState(ConnectionState.Faulted, error);
+            return new ConnectionResult { Success = false, ErrorMessage = error };
+        }
         TransitionState(ConnectionState.Connecting);
         _config = config;
 

@@ -5,12 +5,10 @@ using Microsoft.EntityFrameworkCore;
 
 internal static partial class HuazhongRobotRegressionTests
 {
-    // Explicit opt-in: creates and deletes only a new, uniquely named LocalDB test database.
+    // Explicit opt-in: creates and deletes only a new, uniquely named MySQL test database.
     public static async Task PersistenceAsync()
     {
-        var databaseName = "IOTTImportRegression_" + Guid.NewGuid().ToString("N");
-        var options = new DbContextOptionsBuilder<IoTDbContext>().UseSqlServer(
-            $"Server=(localdb)\\MSSQLLocalDB;Database={databaseName};Integrated Security=true;TrustServerCertificate=true").Options;
+        var options = MySqlRegressionTests.CreateIsolatedOptions();
         await using var database = new IoTDbContext(options);
         await database.Database.EnsureCreatedAsync();
         try

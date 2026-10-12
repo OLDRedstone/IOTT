@@ -14,7 +14,7 @@ $clientConfig = Join-Path $runtime 'client.cnf'
 $configPath = Join-Path $runtime 'my.ini'
 $utf8 = [Text.UTF8Encoding]::new($false)
 if (-not (Test-Path -LiteralPath $server) -or -not (Test-Path -LiteralPath $client)) {
-    throw 'MySQL 8.4 binaries are required. Supply -MySqlBin with the installed bin directory.'
+    throw 'MySQL server and client binaries are required. Supply -MySqlBin with the installed bin directory.'
 }
 New-Item -ItemType Directory -Path $runtime -Force | Out-Null
 $startupLock = [IO.File]::Open((Join-Path $runtime 'startup.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
@@ -100,6 +100,11 @@ if (-not $ready) { throw 'MySQL did not become ready; inspect .runtime/mysql-err
 if ([IO.Path]::GetFullPath($actualDirectory.Trim()).TrimEnd('\', '/') -ine $dataDirectory.TrimEnd('\', '/')) {
     throw 'Port is owned by a different MySQL data directory. No accounts or databases were changed.'
 }
+$versionOutput = & $client "--defaults-extra-file=$clientConfig" --batch --skip-column-names '--execute=SELECT VERSION()'
+if ($LASTEXITCODE -ne 0) { throw 'Unable to read the MySQL server version.' }
+$versionMatch = [regex]::Match([string]$versionOutput, '^\d+\.\d+\.\d+')
+if (-not $versionMatch.Success) { throw 'Unexpected MySQL server version.' }
+$serverVersion = $versionMatch.Value
 $bootstrap = @"
 CREATE DATABASE IF NOT EXISTS IndustrialIoT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 CREATE DATABASE IF NOT EXISTS MachineCollection CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
@@ -128,10 +133,10 @@ foreach ($project in $projects) {
     $settings = if (Test-Path -LiteralPath $settingsPath) { Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json } else { [pscustomobject]@{} }
     if (-not $settings.PSObject.Properties['ConnectionStrings']) { $settings | Add-Member ConnectionStrings ([pscustomobject]@{}) }
     $settings.ConnectionStrings | Add-Member -NotePropertyName $project.Key -NotePropertyValue $connections[$project.Database] -Force
-    $settings | Add-Member -NotePropertyName Database -NotePropertyValue @{ ServerVersion = '8.4.0' } -Force
+    $settings | Add-Member -NotePropertyName Database -NotePropertyValue @{ ServerVersion = $serverVersion } -Force
     [IO.File]::WriteAllText($settingsPath, ($settings | ConvertTo-Json -Depth 30), $utf8)
 }
-Write-Output "MySQL ready at 127.0.0.1:$Port; databases=IndustrialIoT,MachineCollection; local settings written."
+Write-Output "MySQL $serverVersion ready at 127.0.0.1:$Port; databases=IndustrialIoT,MachineCollection; local settings written."
 } finally {
     $startupLock.Dispose()
 }

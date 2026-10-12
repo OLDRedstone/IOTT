@@ -154,7 +154,23 @@
 						placeholder="请输入设备型号"
 					/>
 				</el-form-item>
-				<el-form-item label="站号" prop="station">
+				<template v-if="currentDevice.protocol === 'SiemensS7'">
+					<el-form-item label="CPU 类型" prop="s7CpuType">
+						<el-select v-model="currentDevice.s7CpuType" style="width: 260px">
+							<el-option label="按设备型号识别" value="" />
+							<el-option v-for="cpu in S7_CPU_TYPES" :key="cpu.value" :label="cpu.label" :value="cpu.value" />
+						</el-select>
+					</el-form-item>
+					<el-form-item label="机架号 Rack" prop="s7Rack">
+						<el-input-number v-model="currentDevice.s7Rack" :min="0" :max="7" :precision="0" placeholder="默认 0" />
+					</el-form-item>
+					<el-form-item label="插槽号 Slot" prop="s7Slot">
+						<el-input-number v-model="currentDevice.s7Slot" :min="0" :max="31" :precision="0"
+							:placeholder="s7Defaults ? `默认 ${s7Defaults.slot}` : '按 CPU 确定'" />
+						<span class="field-hint">留空随 CPU 使用默认值；S7-300 为 2，S7-400 为 3，其余为 0</span>
+					</el-form-item>
+				</template>
+				<el-form-item v-else label="站号" prop="station">
 					<el-input-number
 						v-model="currentDevice.station"
 						:min="1"
@@ -345,6 +361,7 @@ import { ref, reactive, computed, onMounted, watch } from "vue";
 import { useRouter } from "vue-router";
 import { Plus, Refresh, Grid } from "@element-plus/icons-vue";
 import { ElMessageBox, ElMessage } from "element-plus";
+import { S7_CPU_TYPES, resolveS7Form, restoreS7Fields, serializeS7Fields, type S7FormFields } from "@/utils/plcS7Configuration";
 import {
 	machineConnectionDevicesApi,
 	type DeviceDto,
@@ -422,7 +439,7 @@ const openCapabilitiesDialog = () => {
 };
 
 // PLC设备类型定义
-interface PLCDevice {
+interface PLCDevice extends S7FormFields {
 	id: string;
 	deviceCode: string;
 	name: string;
@@ -597,6 +614,7 @@ function mapToPlc(d: DeviceDto): PLCDevice {
 		dataBits: Number(extProp(d, "DataBits") ?? serial.dataBits) || serial.dataBits,
 		stopBits: extProp(d, "StopBits") ?? serial.stopBits,
 		parity: extProp(d, "Parity") ?? serial.parity,
+		...restoreS7Fields(d.protocol === "SiemensS7" ? d.extendedProperties : {}),
 	};
 }
 
@@ -675,10 +693,15 @@ function blankDevice(): PLCDevice {
 		dataBits: 8,
 		stopBits: "One",
 		parity: "None",
+		...restoreS7Fields(),
 	};
 }
 
 const currentDevice = reactive<PLCDevice>(blankDevice());
+const s7Defaults = computed(() => {
+	try { return resolveS7Form(currentDevice.model, { s7CpuType: currentDevice.s7CpuType }); }
+	catch { return undefined; }
+});
 
 const isInovance = computed(() => currentDevice.protocol.startsWith("Inovance"));
 const isGenericProtocol = computed(() => COMMON_PROTOCOLS.includes(currentDevice.protocol));
@@ -712,6 +735,7 @@ const handleProtocolChange = (protocol: string) => {
 		currentDevice.brand = brands[0] ?? currentDevice.brand;
 	}
 	Object.assign(currentDevice, serialDefaults(protocol));
+	if (protocol === "SiemensS7" && currentDevice.port === 502) currentDevice.port = 102;
 	currentDevice.hostLinkMode = "Tcp";
 	ensureSerialHost();
 };
@@ -821,6 +845,11 @@ const saveDevice = async () => {
 		ElMessage.warning("串口设备必须填写串口号（如 COM3）");
 		return;
 	}
+	let s7Properties: Record<string, string> = {};
+	if (currentDevice.protocol === "SiemensS7") {
+		try { s7Properties = serializeS7Fields(currentDevice.model, currentDevice); }
+		catch (error) { ElMessage.warning(getErr(error, "S7 连接参数无效")); return; }
+	}
 
 	// 键名大小写必须与驱动内 Get(config, "...") 完全一致，否则会被静默忽略
 	const ext: Record<string, string> = currentDevice.protocol === currentDevice.originalProtocol
@@ -829,6 +858,7 @@ const saveDevice = async () => {
 	const replacedProperties = new Set([
 		"station", "devicecode", "description", "portname", "baudrate", "databits", "stopbits", "parity", "mode",
 		...(isInovance.value ? ["series", "dataformat", "addressstartwithzero", "isstringreverse"] : []),
+		...(currentDevice.protocol === "SiemensS7" ? ["plctype", "cputype", "series", "model", "rack", "slot"] : []),
 	]);
 	for (const key of Object.keys(ext)) {
 		if (replacedProperties.has(key.toLowerCase())) delete ext[key];
@@ -850,6 +880,7 @@ const saveDevice = async () => {
 		ext.Parity = currentDevice.parity ?? "None";
 	}
 	if (currentDevice.protocol === "OmronHostLink") ext.Mode = currentDevice.hostLinkMode ?? "Tcp";
+	Object.assign(ext, s7Properties);
 
 	const brand = currentDevice.brand.trim();
 

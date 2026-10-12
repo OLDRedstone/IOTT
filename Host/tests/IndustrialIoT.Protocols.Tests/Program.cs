@@ -1,3 +1,9 @@
+if (args.Contains("--verification-transfer"))
+{
+    await VerificationTransferRegressionTests.RunAsync();
+    return 0;
+}
+
 if (args.Length == 2 && args[0] == "--urls")
 {
     await JingDiaoLifecycleRegressionTests.RunFixtureAsync(args[1]);
@@ -6,6 +12,7 @@ if (args.Length == 2 && args[0] == "--urls")
 
 var checks = new (string Name, Func<Task> Run)[]
 {
+    ("Batch connection verification: sequential queries and 100 concurrent drivers", ConnectionVerificationRegressionTests.RunAsync),
     ("Modbus batch connection recovery", ModbusBatchConnectionRegressionTests.RunAsync),
     ("Estun connection lifecycle retains a shared Modbus socket", EstunConnectionLifecycleRegressionTests.RunAsync),
     ("Protocol safety: Modbus writes, lengths and point isolation", ModbusSafetyRegressionTests.RunAsync),
@@ -22,6 +29,7 @@ var checks = new (string Name, Func<Task> Run)[]
     ("PLC address browsing rejects synthetic directories", PlcAddressSpaceRegressionTests.RunAsync),
     ("Siemens S7 scalar widths and byte order", SiemensS7RegressionTests.ScalarWidthsAsync),
     ("Siemens S7 TIA addresses and exact integer transport", SiemensS7RegressionTests.AddressAndTransportAsync),
+    ("Siemens S7 model, CPU, Rack/Slot and legacy connection configuration", SiemensS7ConfigurationRegressionTests.RunAsync),
     ("OPC UA scalar, structured values and quality", OpcUaRegressionTests.RunAsync),
     ("Haas ping and macro roundtrip", HaasRegressionTests.MacroRoundtripAsync),
     ("Haas fragmented responses and CRLF", HaasRegressionTests.FragmentedResponseAsync),
@@ -47,9 +55,12 @@ var checks = new (string Name, Func<Task> Run)[]
     ("Huazhong robot health address", ModbusRegressionTests.RobotHealthAddressAsync),
     ("Huazhong robot mapping, wire types and lifetime", HuazhongRobotRegressionTests.RunAsync),
     ("HNC and JingDiao IPC directory errors", SdkDirectoryRegressionTests.RunAsync),
+    ("MySQL model types, UTC conversion and SQL generation", MySqlRegressionTests.ModelAsync),
 };
 if (args.Contains("--protocol-safety"))
     checks = checks.Where(check => check.Name.StartsWith("Protocol safety:", StringComparison.Ordinal)).ToArray();
+if (args.Contains("--batch-connections"))
+    checks = checks.Where(check => check.Name.StartsWith("Batch connection verification:", StringComparison.Ordinal)).ToArray();
 if (args.Contains("--modbus-batch"))
     checks = checks.Where(check => check.Name.StartsWith("Modbus", StringComparison.Ordinal)).ToArray();
 if (args.Contains("--estun-connection"))
@@ -75,7 +86,15 @@ if (args.Contains("--siemens-s7"))
 if (args.Contains("--huazhong-robot"))
     checks = checks.Where(check => check.Name.StartsWith("Huazhong robot", StringComparison.Ordinal)).ToArray();
 if (args.Contains("--huazhong-import-db"))
-    checks = [("Huazhong robot atomic SQL import", HuazhongRobotRegressionTests.PersistenceAsync)];
+    checks = [("Huazhong robot atomic MySQL import", HuazhongRobotRegressionTests.PersistenceAsync)];
+if (args.Contains("--mysql-model"))
+    checks = [("MySQL model types, UTC conversion and SQL generation", MySqlRegressionTests.ModelAsync)];
+if (args.Contains("--mysql"))
+    checks = [
+        ("MySQL model types, UTC conversion and SQL generation", MySqlRegressionTests.ModelAsync),
+        ("MySQL schema, Unicode, JSON and UTC roundtrip", MySqlRegressionTests.RoundtripAsync),
+        ("MySQL import transaction rollback and commit", HuazhongRobotRegressionTests.PersistenceAsync)
+    ];
 if (args.Contains("--plc-browse"))
     checks = checks.Where(check => check.Name.StartsWith("PLC address browsing", StringComparison.Ordinal)
         || check.Name.StartsWith("Siemens S7", StringComparison.Ordinal)

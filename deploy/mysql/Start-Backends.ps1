@@ -1,9 +1,12 @@
-param([switch]$NoBuild)
+param(
+    [switch]$NoBuild,
+    [string]$MySqlBin = 'C:\Program Files\MySQL\MySQL Server 8.4\bin'
+)
 $ErrorActionPreference = 'Stop'
 $workspaceRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $runtime = Join-Path $PSScriptRoot '.runtime'
-& (Join-Path $PSScriptRoot 'Start-MySql.ps1')
-& (Join-Path $PSScriptRoot 'Import-InitialData.ps1')
+& (Join-Path $PSScriptRoot 'Start-MySql.ps1') -MySqlBin $MySqlBin
+& (Join-Path $PSScriptRoot 'Import-InitialData.ps1') -MySqlBin $MySqlBin
 $dotnet = (Get-Command dotnet -ErrorAction Stop).Source
 $backends = @(
     @{ Name='Host'; Directory='Host/src/IndustrialIoT.Host'; Assembly='IndustrialIoT.Host'; Port=5173 },

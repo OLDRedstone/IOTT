@@ -16,7 +16,7 @@ assert.deepEqual(compileTemplate({ source: descriptor.template.content, filename
 const parsed = ts.createSourceFile(filename, descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 const executable = ts.transpileModule(parsed.statements.filter((statement) => !ts.isImportDeclaration(statement))
     .map((statement) => statement.getText(parsed)).join("\n")
-    + "\nglobalThis.handlers = { currentDevice, mapToDevice, openAddDeviceDialog, openEditDeviceDialog, buildDeviceRequest, saveDevice, testConnection, testResult };",
+    + "\nglobalThis.handlers = { currentDevice, mapToDevice, openAddDeviceDialog, openEditDeviceDialog, handleProtocolChange, buildDeviceRequest, saveDevice, testConnection, testResult };",
     { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
 
 function setup(sync = true) {
@@ -38,6 +38,62 @@ function setup(sync = true) {
 const settings = { PortName: "COM7", BaudRate: "19200", DataBits: "7", Parity: "Even", StopBits: "Two" };
 const fixture = { id: "serial-1", name: "Serial fixture", host: "localhost", port: 0, model: "SERIAL-1",
     protocol: "Serial", status: "Offline", extendedProperties: { ...settings, Custom: "preserved" } };
+
+test("Protocol selection replaces default ports while custom ports and loaded configurations remain explicit", () => {
+    const { handlers } = setup();
+    handlers.openAddDeviceDialog();
+    handlers.handleProtocolChange("SMB");
+    assert.equal(handlers.currentDevice.port, 445);
+    handlers.handleProtocolChange("NFS");
+    assert.equal(handlers.currentDevice.port, 2049);
+    handlers.currentDevice.port = 2121;
+    handlers.handleProtocolChange("FTP");
+    assert.equal(handlers.currentDevice.port, 2121);
+    handlers.openEditDeviceDialog(handlers.mapToDevice({ ...fixture, protocol: "SMB", port: 1445 }));
+    assert.equal(handlers.currentDevice.port, 1445);
+});
+
+test("NFS create requires an explicit mount point and stores it separately from the program path", async () => {
+    const { handlers, writes, warnings } = setup();
+    handlers.openAddDeviceDialog();
+    Object.assign(handlers.currentDevice, { name: "NFS", deviceCode: "NFS-1", protocol: "NFS",
+        ip: "192.0.2.20", port: 2049, devicePath: "/programs", mountPoint: " " });
+    await handlers.saveDevice();
+    assert.equal(writes.length, 0);
+    assert.match(warnings[0], /MountPoint/);
+    handlers.currentDevice.mountPoint = " /mnt/nc ";
+    await handlers.saveDevice();
+    assert.equal(writes[0].body.extendedProperties.MountPoint, "/mnt/nc");
+    assert.equal(writes[0].body.extendedProperties.devicePath, "/programs");
+});
+
+test("NFS edit restores the mount point, preserves custom settings and removes it on protocol change", () => {
+    const { handlers } = setup();
+    const device = { ...fixture, protocol: "NFS", host: "192.0.2.20", port: 2049,
+        extendedProperties: { MountPoint: "Z:\\nc", devicePath: "/programs", Custom: "preserved" } };
+    handlers.openEditDeviceDialog(handlers.mapToDevice(device));
+    assert.equal(handlers.currentDevice.mountPoint, "Z:\\nc");
+    handlers.currentDevice.mountPoint = "Z:\\updated";
+    assert.equal(handlers.buildDeviceRequest().extendedProperties.MountPoint, "Z:\\updated");
+    handlers.currentDevice.protocol = "FTP";
+    const body = handlers.buildDeviceRequest();
+    assert.equal(body.extendedProperties.MountPoint, undefined);
+    assert.equal(body.extendedProperties.Custom, "preserved");
+    handlers.openAddDeviceDialog();
+    assert.equal(handlers.currentDevice.mountPoint, "");
+});
+
+test("NFS connection testing saves the mount point and reports directory access without claiming protocol verification", async () => {
+    const { handlers, writes } = setup();
+    handlers.openEditDeviceDialog(handlers.mapToDevice({ ...fixture, protocol: "NFS", host: "192.0.2.20", port: 2049,
+        extendedProperties: { MountPoint: "/mnt/nc" } }));
+    handlers.currentDevice.mountPoint = "/mnt/updated";
+    await handlers.testConnection();
+    assert.deepEqual(writes.map(entry => entry.method), ["update", "test"]);
+    assert.equal(writes[0].body.extendedProperties.MountPoint, "/mnt/updated");
+    assert.match(handlers.testResult.value.message, /挂载目录 \/mnt\/updated 可访问/);
+    assert.equal(handlers.testResult.value.details.port, "不适用");
+});
 
 test("Serial create persists localhost:0 and serial settings", async () => {
     const { handlers, writes } = setup();
