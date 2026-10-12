@@ -172,24 +172,32 @@ public partial class DatacollectionController : ControllerBase
                 i.ErrorMessage))
             .ToList();
 
-        try
+        async Task StoreAsync()
         {
-            await _influxTelemetryWriter.WriteBatchAsync(id, batchTime, telemetryPoints, ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "采集结果写入 InfluxDB 失败（仍返回 HTTP 200 与采集结果）");
-        }
-
-        try
-        {
-            await _mqttTelemetryPublisher.PublishCollectionBatchAsync(id, batchTime, telemetryPoints, ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "采集结果 MQTT 发布失败（仍返回 HTTP 200 与采集结果）");
+            try { await _influxTelemetryWriter.WriteBatchAsync(id, batchTime, telemetryPoints, ct); }
+            catch (Exception ex)
+            {
+                result.StorageError = ex.Message;
+                _logger.LogWarning(ex, "采集结果写入 InfluxDB 失败（仍返回 HTTP 200 与采集结果）");
+            }
         }
 
+        async Task QueueAsync()
+        {
+            try
+            {
+                var receipt = await _mqttTelemetryPublisher.PublishCollectionBatchAsync(id, batchTime, telemetryPoints, ct);
+                result.MqttQueued = receipt.Queued;
+                result.MqttMessageId = receipt.MessageId;
+                result.MqttReason = receipt.Reason;
+            }
+            catch (Exception ex)
+            {
+                result.MqttError = ex.Message;
+                _logger.LogWarning(ex, "采集结果 MQTT 入队失败（仍返回 HTTP 200 与采集结果）");
+            }
+        }
+        await Task.WhenAll(QueueAsync(), StoreAsync());
         return Ok(result);
     }
 
@@ -362,7 +370,14 @@ public record DatacollectionCollectResultDto(
     int TotalCount,
     int SuccessCount,
     int FailCount,
-    IReadOnlyList<DatacollectionCollectItemDto> Items);
+    IReadOnlyList<DatacollectionCollectItemDto> Items)
+{
+    public bool MqttQueued { get; set; }
+    public string? MqttMessageId { get; set; }
+    public string? MqttReason { get; set; }
+    public string? MqttError { get; set; }
+    public string? StorageError { get; set; }
+}
 
 public class ReadTagProxyItem
 {

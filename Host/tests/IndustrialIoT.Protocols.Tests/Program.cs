@@ -12,6 +12,7 @@ if (args.Length == 2 && args[0] == "--urls")
 
 var checks = new (string Name, Func<Task> Run)[]
 {
+    ("MQTT durable outbox: restart, ownership, disk errors and corrupt messages", MqttOutboxRegressionTests.RunAsync),
     ("Batch connection verification: sequential queries and 100 concurrent drivers", ConnectionVerificationRegressionTests.RunAsync),
     ("Modbus batch connection recovery", ModbusBatchConnectionRegressionTests.RunAsync),
     ("Estun connection lifecycle retains a shared Modbus socket", EstunConnectionLifecycleRegressionTests.RunAsync),
@@ -59,6 +60,8 @@ var checks = new (string Name, Func<Task> Run)[]
 };
 if (args.Contains("--protocol-safety"))
     checks = checks.Where(check => check.Name.StartsWith("Protocol safety:", StringComparison.Ordinal)).ToArray();
+if (args.Contains("--mqtt-outbox"))
+    checks = checks.Where(check => check.Name.StartsWith("MQTT durable outbox:", StringComparison.Ordinal)).ToArray();
 if (args.Contains("--batch-connections"))
     checks = checks.Where(check => check.Name.StartsWith("Batch connection verification:", StringComparison.Ordinal)).ToArray();
 if (args.Contains("--modbus-batch"))

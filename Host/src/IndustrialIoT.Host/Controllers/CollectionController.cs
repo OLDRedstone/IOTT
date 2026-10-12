@@ -2,6 +2,8 @@ namespace IndustrialIoT.Host.Controllers;
 
 using IndustrialIoT.Application.DTOs;
 using IndustrialIoT.Domain.Enums;
+using IndustrialIoT.Infrastructure.Messaging;
+using IndustrialIoT.Messaging;
 using IndustrialIoT.Protocols.Abstractions;
 using IndustrialIoT.Protocols.Models;
 using IndustrialIoT.Protocols.Pipeline;
@@ -12,8 +14,21 @@ using Microsoft.AspNetCore.Mvc;
 public class CollectionController : ControllerBase
 {
     private readonly ICollectionPipeline _pipeline;
+    private readonly MqttDataOutput? _mqttOutput;
 
-    public CollectionController(ICollectionPipeline pipeline) => _pipeline = pipeline;
+    public CollectionController(ICollectionPipeline pipeline, MqttDataOutput? mqttOutput = null)
+    {
+        _pipeline = pipeline;
+        _mqttOutput = mqttOutput;
+    }
+
+    /// <summary>MQTT 转发状态；成功批次和失败尝试次数从进程启动起统计</summary>
+    [HttpGet("mqtt/status")]
+    public ActionResult<MqttForwardingStatus> GetMqttStatus()
+    {
+        if (_mqttOutput is null) return StatusCode(503, new { message = "MQTT output is not registered." });
+        return Ok(_mqttOutput.GetStatus());
+    }
 
     /// <summary>启动设备数据采集</summary>
     [HttpPost("start")]

@@ -48,6 +48,7 @@ public sealed class BusinessApiAuthorizationFilter(IAuthService auth) : IAuthori
         ("Datacollection", _) => ["data_read", "device_manage"],
         ("TelemetryInflux", "WriteBatch") => ["data_write", "device_manage"],
         ("TelemetryInflux", "QueryHistory") => ["data_read", "device_manage", "report_manage"],
+        ("TelemetryMqtt", "GetStatus") => ["data_read", "data_write", "device_manage", "report_manage"],
         ("ProgramTransfer", "Upload" or "UploadBatch" or "Resume") => ["data_write", "device_manage"],
         ("ProgramTransfer", _) => ["data_read", "device_manage"],
         _ => ["system_manage"],

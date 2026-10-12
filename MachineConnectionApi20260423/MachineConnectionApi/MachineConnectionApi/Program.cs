@@ -42,7 +42,9 @@ builder.Services.AddSingleton<InfluxConnectionTester>();
 builder.Services.Configure<MqttOptions>(
     builder.Configuration.GetSection(MqttOptions.SectionName));
 builder.Services.AddSingleton<IInfluxTelemetryWriter, InfluxTelemetryWriter>();
-builder.Services.AddSingleton<IMqttTelemetryPublisher, MqttTelemetryPublisher>();
+builder.Services.AddSingleton<MqttTelemetryPublisher>();
+builder.Services.AddSingleton<IMqttTelemetryPublisher>(sp => sp.GetRequiredService<MqttTelemetryPublisher>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<MqttTelemetryPublisher>());
 builder.Services.AddSingleton<ICsConnectivityService, CsConnectivityService>();
 builder.Services.AddSingleton<ICsParallelReportService, CsParallelReportService>();
 builder.Services.AddSingleton<IVerifyAutomationService, VerifyAutomationService>();

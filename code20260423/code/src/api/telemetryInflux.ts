@@ -52,7 +52,45 @@ export type InfluxStorageSettingsInput = Omit<InfluxStorageSettings, "hasToken">
     token?: string;
 };
 
+export interface TelemetryBatchResult {
+    written: number;
+    storageEnabled: boolean;
+    storageError?: string | null;
+    mqttEnabled: boolean;
+    mqttQueued: boolean;
+    mqttMessageId?: string | null;
+    mqttPublished: false;
+    mqttError?: string | null;
+    skipped?: boolean;
+    reason?: string;
+}
+
+export interface MqttForwardingStatus {
+    enabled: boolean;
+    isConnected: boolean;
+    pendingCount: number;
+    sentCount: number;
+    failedCount: number;
+    lastError: string | null;
+    lastAttemptAt: string | null;
+    lastSentAt: string | null;
+    counterStartedAt: string;
+}
+
+export interface MqttForwardingOverview {
+    gateway: MqttForwardingStatus;
+    host: MqttForwardingStatus | null;
+    hostError?: string | null;
+}
+
 export const telemetryInfluxApi = {
+    async getMqttStatus(signal?: AbortSignal): Promise<MqttForwardingOverview> {
+        const res = await client.get<MqttForwardingOverview>("/api/telemetry/mqtt/status", {
+            signal, timeout: 10_000,
+        });
+        return res.data;
+    },
+
     async getSettings(): Promise<InfluxStorageSettings> {
         const res = await client.get<InfluxStorageSettings>("/api/telemetry/influx/settings");
         return res.data;
@@ -74,20 +112,8 @@ export const telemetryInfluxApi = {
         deviceId: string;
         collectedAt?: string;
         points: InfluxTelemetryBatchPoint[];
-    }): Promise<{
-        written: number;
-        mqttPublished?: boolean;
-        mqttError?: string;
-        skipped?: boolean;
-        reason?: string;
-    }> {
-        const res = await client.post<{
-            written: number;
-            mqttPublished?: boolean;
-            mqttError?: string;
-            skipped?: boolean;
-            reason?: string;
-        }>(
+    }): Promise<TelemetryBatchResult> {
+        const res = await client.post<TelemetryBatchResult>(
             "/api/telemetry/influx/batch",
             body,
         );

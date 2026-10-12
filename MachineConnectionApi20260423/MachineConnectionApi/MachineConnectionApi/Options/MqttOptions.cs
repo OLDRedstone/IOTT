@@ -27,9 +27,14 @@ public class MqttOptions
     /// </summary>
     public string TopicPrefix { get; set; } = "machines/telemetry";
 
-    /// <summary>QoS：0=最多一次，1=至少一次，2=恰好一次。</summary>
+    /// <summary>QoS：1=至少一次，2=恰好一次；0 自动提升到 1，以等待 Broker 确认。</summary>
     public int QualityOfService { get; set; } = 1;
 
     /// <summary>连接超时（秒）。</summary>
     public int ConnectTimeoutSeconds { get; set; } = 10;
+
+    public int PublishTimeoutSeconds { get; set; } = 15;
+
+    /// <summary>持久化待发目录；部署更新时必须保留，修改后重启服务生效。</summary>
+    public string OutboxDirectory { get; set; } = Path.Combine(AppContext.BaseDirectory, "App_Data", "mqtt-outbox");
 }

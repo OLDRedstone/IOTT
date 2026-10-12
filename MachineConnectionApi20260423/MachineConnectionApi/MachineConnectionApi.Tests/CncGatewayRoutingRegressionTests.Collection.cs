@@ -150,10 +150,10 @@ internal static partial class CncGatewayRoutingRegressionTests
             Written++;
             return Task.CompletedTask;
         }
-        public Task PublishCollectionBatchAsync(string deviceId, DateTimeOffset collectedAt, IReadOnlyList<InfluxTelemetryPoint> points, CancellationToken ct = default)
+        public Task<IndustrialIoT.Messaging.MqttEnqueueResult> PublishCollectionBatchAsync(string deviceId, DateTimeOffset collectedAt, IReadOnlyList<InfluxTelemetryPoint> points, CancellationToken ct = default)
         {
             Published++;
-            return Task.CompletedTask;
+            return Task.FromResult(new IndustrialIoT.Messaging.MqttEnqueueResult(true, "fixture-message"));
         }
     }
 

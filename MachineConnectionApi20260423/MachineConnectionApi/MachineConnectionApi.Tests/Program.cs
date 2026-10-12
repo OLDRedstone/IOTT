@@ -9,6 +9,12 @@ internal static class Program
 {
     private static async Task Main(string[] args)
     {
+        if (args.Contains("--mqtt-outbox"))
+        {
+            await MachineConnectionApi.Tests.MqttReliabilityRegressionTests.RunAll();
+            MachineConnectionApi.Tests.ApiAuthorizationRegressionTests.RunAll();
+            return;
+        }
         if (args.Contains("--cs-ftp-integrity"))
         {
             await MachineConnectionApi.Tests.CsConnectivityServiceRegressionTests.FtpRoundTripIntegrity();

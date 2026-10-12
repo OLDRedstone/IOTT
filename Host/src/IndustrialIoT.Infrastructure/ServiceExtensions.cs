@@ -44,6 +44,7 @@ public static class InfrastructureServiceExtensions
         // Data output — implementations
         services.AddSingleton<MqttDataOutput>();
         services.AddSingleton<IDataOutput>(sp => sp.GetRequiredService<MqttDataOutput>());
+        services.AddHostedService(sp => sp.GetRequiredService<MqttDataOutput>());
 
         var kafkaOptions = configuration.GetSection(KafkaOutputOptions.SectionName).Get<KafkaOutputOptions>();
         if (kafkaOptions?.Enabled == true)
