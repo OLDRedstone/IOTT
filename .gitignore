@@ -47,6 +47,10 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# ---- Gateway runtime data (generated sample data) & backups ----
+App_Data/
+*.bak
+
 # ---- Host scratch / vendor extract ----
 tmp/
 reverse-engineering/
