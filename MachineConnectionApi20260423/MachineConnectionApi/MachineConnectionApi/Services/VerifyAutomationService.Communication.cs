@@ -6,26 +6,24 @@ namespace MachineConnectionApi.Services;
 public sealed partial class VerifyAutomationService
 {
     private async Task MeasureProtocolsAsync(VerifyMetricResult metric, EvaluationItem item, EvaluationAutomationRule rule,
-        IReadOnlyList<VerifyMeasurementTarget> devices, VerifyRunOptions options, bool transfer, Action<double> progress, CancellationToken ct)
+        IReadOnlyList<VerifyMeasurementTarget> devices, VerifyRunOptions options, Action<double> progress, CancellationToken ct)
     {
         var standards = item.Protocols.Select(NormalizeProtocol).Where(x => x.Length > 0).Distinct(StringComparer.Ordinal).ToList();
-        var configured = devices.Select(x => NormalizeProtocol(transfer ? x.ResolvedTransferProtocol ?? x.Transfer?.Protocol ?? x.Protocol : x.Protocol))
+        var configured = devices.Select(x => NormalizeProtocol(x.Protocol))
             .Where(x => x.Length > 0).Distinct(StringComparer.Ordinal).ToList();
         metric.MeasurementSource = "configuration";
         metric.Evidence.Add($"配置协议（不等于能力实测）：{string.Join("、", configured)}");
         metric.Evidence.Add($"待评价标准集合（别名去重）：{string.Join("、", standards)}");
         if (standards.Count == 0) { MarkUnrated(metric, "未选择协议标准集合，不能计算协议覆盖评分。"); return; }
-        var candidates = devices.Where(x => standards.Contains(NormalizeProtocol(transfer ? x.ResolvedTransferProtocol ?? x.Transfer?.Protocol ?? x.Protocol : x.Protocol))).ToList();
+        var candidates = devices.Where(x => standards.Contains(NormalizeProtocol(x.Protocol))).ToList();
         if (candidates.Count == 0) { MarkUnrated(metric, "只有协议配置统计，没有选定标准协议的本轮通讯证据。"); return; }
         var verified = new HashSet<string>(StringComparer.Ordinal);
         var measured = new HashSet<string>(StringComparer.Ordinal);
         for (var i = 0; i < candidates.Count; i++)
         {
             var device = candidates[i];
-            var protocol = NormalizeProtocol(transfer ? device.ResolvedTransferProtocol ?? device.Transfer?.Protocol ?? device.Protocol : device.Protocol);
-            var observation = transfer
-                ? await _measurements.ReadTransferDirectoryAsync(device, rule.Test.TargetDirectory, options.ProbeTimeoutMs, ct)
-                : await _measurements.ReadAsync(device, rule.Test.ReadAddress, rule.Test.ReadDataType, options.ProbeTimeoutMs, ct);
+            var protocol = NormalizeProtocol(device.Protocol);
+            var observation = await _measurements.ReadAsync(device, rule.Test.ReadAddress, rule.Test.ReadDataType, options.ProbeTimeoutMs, ct);
             metric.Evidence.Add($"{device.Name}/{protocol}: {observation.Detail}");
             if (!string.IsNullOrWhiteSpace(observation.Protocol) && NormalizeProtocol(observation.Protocol) != protocol)
             {
@@ -41,12 +39,10 @@ public sealed partial class VerifyAutomationService
         }
         if (measured.Count == 0) { MarkUnrated(metric, "未取得本轮真实协议通讯证据，配置数量不计作能力验证分数。"); return; }
         // An unsupported/missing read for a configured protocol makes its ability unknown, rather than zero.
-        if (candidates.Select(x => NormalizeProtocol(transfer ? x.ResolvedTransferProtocol ?? x.Transfer?.Protocol ?? x.Protocol : x.Protocol)).Distinct().Any(x => !measured.Contains(x)))
+        if (candidates.Select(x => NormalizeProtocol(x.Protocol)).Distinct().Any(x => !measured.Contains(x)))
         { MarkUnrated(metric, "部分已配置协议缺少本轮可验证通讯证据，不能把未测协议计为不支持。"); return; }
-        var value = transfer ? verified.Count : Math.Min(100, verified.Count * 100d / standards.Count);
-        SetMeasurement(metric, rule, value, transfer ? "count" : "%", transfer
-            ? "按选定集合中成功完成本轮目录协议读取的协议种类计分；不是上传能力证明。"
-            : "按选定标准集合中本轮应用读成功的协议覆盖比例计分。");
+        var value = Math.Min(100, verified.Count * 100d / standards.Count);
+        SetMeasurement(metric, rule, value, "%", "按选定标准集合中本轮应用读成功的协议覆盖比例计分。");
         metric.Detail = $"实测支持 {verified.Count}/{standards.Count} 种：{string.Join("、", verified)}；配置与实测已区分";
     }
 

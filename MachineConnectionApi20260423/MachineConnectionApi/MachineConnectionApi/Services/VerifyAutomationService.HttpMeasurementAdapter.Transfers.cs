@@ -44,7 +44,9 @@ public sealed partial class HttpVerifyMeasurementAdapter
                     if (!response.IsSuccessStatusCode)
                         return TransferUnknown($"Host未提供验证安全配置快照（HTTP {(int)response.StatusCode}）；未上传。");
                     var snapshot = await response.Content.ReadFromJsonAsync<TransferSnapshot>(JsonOptions, timeout.Token);
-                    if (snapshot is null || !MatchesFrozenTarget(target, snapshot) || !ValidHash(snapshot.Token))
+                    if (snapshot is null || !MatchesFrozenTarget(target, snapshot) || !ValidHash(snapshot.Token)
+                        || EvaluationAutomationRules.NormalizeProtocol(snapshot.Protocol)
+                            != EvaluationAutomationRules.NormalizeProtocol(target.ResolvedTransferProtocol ?? target.Transfer?.Protocol ?? target.Protocol))
                     {
                         target.VerificationConfigurationChanged = true;
                         return TransferUnknown("Host实际设备/传输配置与本轮冻结目标不符；不向变化或未知目标写入。");

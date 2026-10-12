@@ -38,6 +38,7 @@ public partial class FtpTransferDriver : IVerificationFileTransfer
     {
         private bool _uploadAttempted;
         private bool _cleaned;
+        private long _uploadedBytes;
         public string RemotePath { get; } = directory + "/" + fileName;
 
         public async Task<long> UploadAsync(Stream source, long length, CancellationToken ct)
@@ -54,15 +55,33 @@ public partial class FtpTransferDriver : IVerificationFileTransfer
             ct.ThrowIfCancellationRequested();
             if (status != FtpStatus.Success || source.Position != length)
                 throw new IOException("FTP verification upload did not consume the complete source.");
+            _uploadedBytes = length;
             return length;
         }
 
         public async Task DownloadAsync(Stream destination, CancellationToken ct)
         {
             if (!_uploadAttempted || _cleaned) throw new InvalidOperationException("No owned verification upload is available.");
-            // Hash/count the actual RETR byte stream, not FTP metadata or a source-side checksum.
-            if (!await client.DownloadStream(destination, RemotePath, token: ct))
-                throw new IOException("FTP verification read-back failed.");
+            // DownloadStream can turn a destination IOException into success on a 226 reply.
+            // Read RETR to EOF without SIZE, then validate both bytes and the final control reply.
+            long downloaded = 0;
+            await using (var source = await client.OpenRead(RemotePath, FtpDataType.Binary,
+                restart: 0, fileLen: -1, token: ct))
+            {
+                var buffer = new byte[81920];
+                int read;
+                while ((read = await source.ReadAsync(buffer, ct)) != 0)
+                {
+                    var accepted = (int)Math.Min(read, Math.Max(0, _uploadedBytes - downloaded));
+                    if (accepted > 0) await destination.WriteAsync(buffer.AsMemory(0, accepted), ct);
+                    downloaded += read;
+                }
+            }
+            var completion = await client.GetReply(ct);
+            if (completion.Code is not ("226" or "250"))
+                throw new IOException($"FTP verification RETR did not complete: {completion.Code}.");
+            if (downloaded != _uploadedBytes)
+                throw new IOException("FTP verification read-back length differs from the uploaded source.");
             ct.ThrowIfCancellationRequested();
         }
 

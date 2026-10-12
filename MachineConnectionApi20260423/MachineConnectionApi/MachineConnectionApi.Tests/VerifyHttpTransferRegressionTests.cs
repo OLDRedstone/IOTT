@@ -67,6 +67,18 @@ internal static class VerifyHttpTransferRegressionTests
             var uploads = handler.Uploads;
             Require(!(await adapter.TransferAsync(differentTarget, file, "/verification", Name(), _ => { }, default)).HasEvidence && handler.Uploads == uploads,
                 "Snapshot identity must be compared to the frozen selected target before writes.");
+            using (var wrongProtocol = new TransferHandler(target) { SnapshotProtocol = "SMB" })
+            {
+                var mismatchAdapter = new HttpVerifyMeasurementAdapter(new Factory(wrongProtocol), directory);
+                var freshTarget = new VerifyMeasurementTarget
+                {
+                    Id = target.Id, Protocol = target.Protocol, Host = target.Host, Port = target.Port,
+                    Brand = target.Brand, Model = target.Model, ConnectTimeoutMs = target.ConnectTimeoutMs, ReadTimeoutMs = target.ReadTimeoutMs,
+                };
+                var mismatch = await mismatchAdapter.TransferAsync(freshTarget, file, "/verification", Name(), _ => { }, default);
+                Require(!mismatch.HasEvidence && wrongProtocol.Uploads == 0,
+                    "A Host snapshot for another protocol must not write or count toward configured FTP coverage.");
+            }
             handler.BlockUpload = true;
             using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
             try
@@ -124,6 +136,7 @@ internal static class VerifyHttpTransferRegressionTests
         public bool BlockUpload { get; set; }
         public bool SnapshotSupported { get; set; } = true;
         public string SnapshotDetail { get; set; } = "";
+        public string? SnapshotProtocol { get; set; }
         public bool CleanupSucceeded { get; set; } = true;
         public string Tamper { get; set; } = "";
         private const string Token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -136,7 +149,7 @@ internal static class VerifyHttpTransferRegressionTests
                 return Json(new
                 {
                     deviceId = target.Id, token = Token, supported = SnapshotSupported, detail = SnapshotDetail,
-                    protocol = target.Protocol, host = target.Host, port = target.Port,
+                    protocol = SnapshotProtocol ?? target.Protocol, host = target.Host, port = target.Port,
                     primary = new
                     {
                         target.Protocol, target.Host, target.Port, target.Brand, target.Model, target.ConnectTimeoutMs,

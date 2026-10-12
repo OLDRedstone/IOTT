@@ -36,6 +36,7 @@ internal static partial class EvaluationPipelineRegressionTests
         public Func<VerifyMeasurementTarget, VerifyReadObservation> Directory { get; set; } = _ => ReadSucceeded;
         public Func<EvaluationFile, VerifyAttachmentValidation> Validate { get; set; } = _ => new(true, "fixture attachment exists");
         public Func<EvaluationFile, VerifyTransferObservation> Transfer { get; set; } = file => new(true, true, true, true, file.SizeBytes!.Value, 2, "fixture create-only upload and SHA256 readback match");
+        public Func<VerifyMeasurementTarget, EvaluationFile, VerifyTransferObservation>? TargetTransfer { get; set; }
         public List<(string Id, string Address, string DataType)> Reads { get; } = [];
         public List<(string Id, string Directory)> Directories { get; } = [];
         public List<EvaluationFile> Validations { get; } = [];
@@ -66,7 +67,7 @@ internal static partial class EvaluationPipelineRegressionTests
             Transfers.Add((target.Id, directory, remoteName, file));
             reportFraction(0.25);
             reportFraction(0.75);
-            return Task.FromResult(Transfer(file));
+            return Task.FromResult(TargetTransfer?.Invoke(target, file) ?? Transfer(file));
         }
     }
 
@@ -173,21 +174,20 @@ internal static partial class EvaluationPipelineRegressionTests
         catch (ArgumentException) { rejected = true; }
         Assert(rejected && f.Handler.Count == httpBefore, "Empty DeviceId implicitly expanded to all devices");
 
-        f.Change("transfer-protocol", item => item with { Protocols = ["ftp", "FTP", "SMB"] });
-        result = await f.Run(["transfer-protocol"]);
+        f.Change("transfer-protocol", item => item with { Protocols = ["ftp", "FTP"], Files = [FixtureFile(0.1)] });
+        var writes = new VerifyRunOptions { AllowFileWrites = true };
+        result = await f.Run(["transfer-protocol"], writes);
         Assert(result.Metrics.Single().Measurement == 1 && result.Metrics.Single().Score == 60, "Transfer protocol count was incorrectly scored as a percentage");
         Assert(EvaluationAutomationRules.Score(EvaluationAutomationRules.DefaultFor("transfer-protocol")!, 2) == 100, "The two-protocol top scoring band was lost");
-        result = await f.Run(["industrial-protocol", "transfer-protocol"]);
+        result = await f.Run(["industrial-protocol", "transfer-protocol"], writes);
         Assert(result.TotalScore is null && result.Metrics[1].Score == 60, "Task mean silently omitted an unscored selected item");
-        f.Adapter.Directory = _ => ReadFailed;
-        result = await f.Run(["transfer-protocol"]);
+        f.Adapter.Transfer = _ => new(true, true, false, false, 0, 0, "fixture transfer failed");
+        result = await f.Run(["transfer-protocol"], writes);
         Assert(result.Metrics.Single().Score == 0 && result.Metrics.Single().Measurement == 0, "A measured transfer protocol failure did not score zero");
-        f.Adapter.Directory = _ => NoReadEvidence;
-        result = await f.Run(["transfer-protocol"]);
-        Assert(result.TotalScore is null, "Configured transfer protocols were credited without a directory read");
-        f.Adapter.Directory = _ => ReadSucceeded with { Protocol = "SMB" };
-        result = await f.Run(["transfer-protocol"]);
-        Assert(result.TotalScore is null, "A mismatched actual transfer protocol was credited to FTP");
+        f.Adapter.Transfer = _ => new(false, false, false, false, 0, 0, "unsupported fixture");
+        result = await f.Run(["transfer-protocol"], writes);
+        Assert(result.TotalScore is null, "Configured transfer protocols were credited without round-trip evidence");
+        Assert(f.Adapter.Directories.Count == 0, "Directory reads were still used for transfer coverage");
     }
 
     private static async Task StabilityAndProgress()

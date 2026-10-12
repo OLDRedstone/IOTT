@@ -152,8 +152,8 @@ public sealed partial class VerifyAutomationService : IVerifyAutomationService
         IReadOnlyList<VerifyMeasurementTarget> selected, IReadOnlyList<VerifyMeasurementTarget> all,
         VerifyRunOptions options, Action<double> progress, CancellationToken ct) => metric.MetricId switch
         {
-            "industrial-protocol" => MeasureProtocolsAsync(metric, item, rule, selected, options, false, progress, ct),
-            "transfer-protocol" => MeasureProtocolsAsync(metric, item, rule, selected, options, true, progress, ct),
+            "industrial-protocol" => MeasureProtocolsAsync(metric, item, rule, selected, options, progress, ct),
+            "transfer-protocol" => MeasureTransferCoverageAsync(metric, item, rule, selected, all, options, progress, ct),
             "communication-stability" => MeasureStabilityAsync(metric, rule, selected, options, progress, ct),
             "max-connections" => MeasureConcurrencyAsync(metric, rule, selected, all, options, progress, ct),
             _ => MeasureFilesAsync(metric, item, rule, selected, options, progress, ct),

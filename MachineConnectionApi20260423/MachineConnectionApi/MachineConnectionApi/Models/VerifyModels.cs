@@ -23,6 +23,7 @@ public sealed class VerifyRunOptions
     public int MaxParallelTargets { get; set; } = 50;
     public int RequiredMinConcurrentSuccess { get; set; }
     public IReadOnlyList<string>? ConcurrentDeviceIds { get; set; }
+    public IReadOnlyList<string>? TransferDeviceIds { get; set; }
     public bool AllowFileWrites { get; set; } = false;
 }
 

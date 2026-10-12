@@ -22,11 +22,34 @@ internal static class VerifyTaskRuntimeRegressionTests
         await DirectGroupsAndErrorsReleaseLeases();
         TargetResolutionRejectsInvalidGraphsAndHonorsInlinePriority();
         await LinkedTargetsAndBothRegistriesAreReserved();
+        await ExplicitTransferTargetsReserveEndpoints();
         await FinalWriteRetriesWithoutRepeatingMeasurements();
         await PersistentFailureRecoversAndFencesOldRuns();
         await RestartReplaysFullJournalBeforeInterruptingRuns();
         await SchedulerDoesNotAwaitLongRunningMeasurements();
         DailyScheduleRemainsConsumedAfterTimeEdit();
+    }
+
+    private static async Task ExplicitTransferTargetsReserveEndpoints()
+    {
+        var main = Device("coverage-main", 2801);
+        var transfer = Device("coverage-transfer", 2802) with
+        { Transfer = new() { Host = "127.0.0.1", Port = 2803, Protocol = "FTP" } };
+        var alias = Device("coverage-alias", 2803);
+        var devices = new Devices(main, transfer, alias);
+        var leases = new VerifyExecutionLeaseService(devices: devices);
+        using (await leases.AcquireAsync(main.Id, new() { TransferDeviceIds = [transfer.Id] }, CancellationToken.None))
+        {
+            await Throws<VerifyTaskCapacityException>(() => leases.AcquireAsync(transfer.Id, null, CancellationToken.None));
+            await Throws<VerifyTaskCapacityException>(() => leases.AcquireAsync(alias.Id, null, CancellationToken.None));
+        }
+        using (await leases.AcquireAsync(alias.Id, null, CancellationToken.None)) { }
+        foreach (var ids in new[] { new[] { "missing" }, new[] { transfer.Id, transfer.Id }, new[] { " coverage-transfer" } })
+            await Throws<ArgumentException>(() => leases.AcquireAsync(main.Id, new() { TransferDeviceIds = ids }, CancellationToken.None));
+        var linked = main with { ExtendedProperties = new() { ["transferDeviceId"] = alias.Id } };
+        var linkedLeases = new VerifyExecutionLeaseService(devices: new Devices(transfer, linked, alias));
+        using (await linkedLeases.AcquireAsync(transfer.Id, new() { TransferDeviceIds = [linked.Id] }, CancellationToken.None))
+            await Throws<VerifyTaskCapacityException>(() => linkedLeases.AcquireAsync(alias.Id, null, CancellationToken.None));
     }
 
     private static async Task DirectAndTaskEntrypointsShareCapacity()

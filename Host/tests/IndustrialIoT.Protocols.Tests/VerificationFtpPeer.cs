@@ -21,6 +21,7 @@ internal sealed class VerificationFtpPeer : IAsyncDisposable
     public bool RejectCleanup { get; set; }
     public bool CorruptReadBack { get; set; }
     public bool AppendReadBackByte { get; set; }
+    public bool RejectReadBackCompletion { get; set; }
     public int Port => ((IPEndPoint)_listener.LocalEndpoint).Port;
     public int RemainingFiles => _files.Count;
     public int RemainingDirectories => _directories.Count;
@@ -113,10 +114,14 @@ internal sealed class VerificationFtpPeer : IAsyncDisposable
                                     if (first >= 0) await data.GetStream().WriteAsync(new[] { (byte)(first ^ 0xff) }, ct);
                                 }
                                 await input.CopyToAsync(data.GetStream(), 81920, ct);
-                                if (AppendReadBackByte) await data.GetStream().WriteAsync(new byte[] { 1 }, ct);
+                                if (AppendReadBackByte)
+                                {
+                                    await Task.Delay(20, ct);
+                                    await data.GetStream().WriteAsync(new byte[] { 1 }, ct);
+                                }
                             }
                             dataListener.Stop(); dataListener = null;
-                            await writer.WriteLineAsync("226 Transfer complete");
+                            await writer.WriteLineAsync(RejectReadBackCompletion ? "426 Transfer aborted" : "226 Transfer complete");
                             break;
                         case "DELE":
                             if (!RejectCleanup && _files.TryRemove(argument, out var removed))

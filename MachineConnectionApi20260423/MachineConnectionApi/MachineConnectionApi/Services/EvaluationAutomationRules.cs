@@ -23,6 +23,18 @@ public static class EvaluationAutomationRules
         _ => null,
     };
 
+    public static EvaluationPassRule? DefaultCriterionFor(string metricId) => metricId switch
+    {
+        "industrial-protocol" => new() { Threshold = 100, Unit = "%" },
+        "communication-stability" => new() { Threshold = 30, Unit = "min" },
+        "max-connections" => new() { Threshold = 100, Unit = "count" },
+        "transfer-protocol" => new() { Threshold = 2, Unit = "count" },
+        "file-integrity" => new() { Threshold = 100, Unit = "%" },
+        "transfer-speed" => new() { Threshold = 10, Unit = "MB/s" },
+        "file-size" => new() { Threshold = 200, Unit = "MB" },
+        _ => null,
+    };
+
     private static EvaluationAutomationRule Bands(string unit, params (double Min, double Score)[] bands) => new()
     {
         Unit = unit,

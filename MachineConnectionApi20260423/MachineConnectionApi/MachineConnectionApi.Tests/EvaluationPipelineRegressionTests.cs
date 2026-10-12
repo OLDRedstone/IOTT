@@ -60,6 +60,7 @@ internal static partial class EvaluationPipelineRegressionTests
     {
         await ManagedSnapshotsAndRemovedBindings();
         await AutomationRulesAndEvidence();
+        await TransferCoverageRoundTrips();
         await StabilityAndProgress();
         await ExplicitDeviceConcurrency();
         await HundredConcurrentApplicationReads();

@@ -86,9 +86,16 @@ internal static partial class VerificationTransferRegressionTests
         peer.AppendReadBackByte = true;
         source.Position = 0;
         var extraByte = await service.ExecuteAsync(repository.Device.Id, request, source, default);
-        Require(extraByte.HasEvidence && !extraByte.Success && !extraByte.IntegrityVerified,
+        Require(extraByte.HasEvidence && !extraByte.Success && !extraByte.IntegrityVerified && extraByte.CleanupSucceeded == true,
             "FTP read-back longer than SIZE/source must not be silently truncated and scored as intact.");
         peer.AppendReadBackByte = false;
+        peer.RejectReadBackCompletion = true;
+        source.Position = 0;
+        var rejectedCompletion = await service.ExecuteAsync(repository.Device.Id, request, source, default);
+        Require(rejectedCompletion.HasEvidence && !rejectedCompletion.Success && !rejectedCompletion.IntegrityVerified
+            && rejectedCompletion.CleanupSucceeded == true,
+            "Matching RETR bytes with a failed final reply must fail verification and retain clean control state.");
+        peer.RejectReadBackCompletion = false;
         peer.RejectCleanup = true;
         source.Position = 0;
         var cleanupFailed = await service.ExecuteAsync(repository.Device.Id, request, source, default);

@@ -331,6 +331,7 @@ internal static class EvaluationIndicatorRegressionTests
 
     public static async Task RunAll()
     {
+        await EvaluationPreparationRegressionTests.RunAll();
         RulesAreExplicitAndUnitSafe();
         var fileName = $"evaluation-indicators-test-{Guid.NewGuid():N}.json";
         var path = Path.Combine(AppContext.BaseDirectory, "App_Data", fileName);
