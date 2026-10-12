@@ -12,9 +12,12 @@ public interface ISystemActivityLog
     List<SystemLogDto> ReadAll();
     SystemLogDto Append(SystemLogDto entry);
     /// <summary>写一条操作日志。type: operation | system | error | warning（与前端日志筛选一致）。</summary>
-    void Write(string type, string action, string detail, string user = "系统", string ip = "-", string device = "", string result = "");
-    /// <summary>已归档的历史日志（溢出主文件后按时间顺序落入档案文件）。</summary>
-    List<SystemLogDto> ReadArchive();
+    /// <remarks>提供默认实现，便于轻量实现/测试替身只实现必要的成员。</remarks>
+    void Write(string type, string action, string detail, string user = "系统", string ip = "-", string device = "", string result = "")
+    {
+    }
+    /// <summary>已归档的历史日志（溢出主文件后按时间顺序落入档案文件）。默认空实现。</summary>
+    List<SystemLogDto> ReadArchive() => [];
 }
 
 public sealed class SystemActivityLog : ISystemActivityLog
