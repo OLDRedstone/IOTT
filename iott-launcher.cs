@@ -136,6 +136,9 @@ sealed class LauncherConfig
         var rootPwd = ReadJsonString(instance, "RootPassword");
         var appPwd = ReadJsonString(instance, "AppPassword");
         var influxToken = ReadJsonString(gwSettings, "InfluxDB", "Token");
+        // Mock 仅存在于带 tools/IottDevMock 的分支；main 无该项目，可沿用既有已构建的测试 Mock。
+        var mockProject = Path.Combine(root, "tools", "IottDevMock", "IottDevMock.csproj");
+        var mockDll = Path.Combine(root, "tools", "IottDevMock", "bin", "Debug", "net8.0", "IottDevMock.dll");
 
         var cfg = new LauncherConfig();
 
@@ -154,7 +157,7 @@ sealed class LauncherConfig
         toggles.Items.Add(new Entry { Key = "Force", Value = "false" });
         toggles.Items.Add(new Entry { Key = "NoBuild", Value = "false" });
         toggles.Items.Add(new Entry { Key = "Background", Value = "false" });
-        toggles.Items.Add(new Entry { Key = "UseMock", Value = "true" });
+        toggles.Items.Add(new Entry { Key = "UseMock", Value = (File.Exists(mockProject) || File.Exists(mockDll)) ? "true" : "false" });
         toggles.Items.Add(new Entry { Key = "GatewayUseMock", Value = "false" });
         toggles.Items.Add(new Entry { Key = "UseInflux", Value = "false" });
         toggles.Items.Add(new Entry { Key = "VerifySimulate", Value = "true" });
@@ -495,6 +498,16 @@ static class Launcher
             return 0;
         }
 
+        // 非交互启动/停止：脚本化地跑「修正 → 构建 → 启动」或停止各服务，便于无 TUI 环境下跑通原始工程。
+        if (args.Contains("--start") || args.Contains("--stop"))
+        {
+            var headless = new Tui(root, configPath, cfg);
+            var (status, log) = headless.RunHeadless(args.Contains("--start"));
+            PrintStatus(status);
+            foreach (var line in log) Console.WriteLine("  " + line);
+            return 0;
+        }
+
         if (Console.IsInputRedirected || Console.IsOutputRedirected)
         {
             AnsiConsole.MarkupLine("[yellow]当前非交互式终端（输入/输出被重定向）。[/]");
@@ -560,6 +573,8 @@ static class Launcher
     {
         AnsiConsole.MarkupLine("[bold]iott-launcher[/] — 检查/修正/启动 MySQL·InfluxDB·Host·Gateway·前端");
         AnsiConsole.MarkupLine("  [blue]--check[/]         打印各服务状态后退出");
+        AnsiConsole.MarkupLine("  [blue]--start[/]         非交互执行「修正 → 构建 → 启动」后退出");
+        AnsiConsole.MarkupLine("  [blue]--stop[/]          非交互停止各服务后退出");
         AnsiConsole.MarkupLine("  [blue]--print-config[/]  打印全部配置项后退出");
         AnsiConsole.MarkupLine("  [blue]--root <路径>[/]   指定仓库根目录");
         AnsiConsole.MarkupLine("  [blue]--help[/]          显示本帮助");
@@ -668,6 +683,16 @@ sealed class Tui
                 default: HandleLetter(key.Key); break;
             }
         }
+    }
+
+    /// <summary>非交互启动/停止，返回最终服务状态与日志，供 --start/--stop 使用。</summary>
+    public (List<ServiceStatus> Status, IReadOnlyList<string> Log) RunHeadless(bool start)
+    {
+        _status = Probe.Check(_cfg);
+        Log(start ? "== 非交互启动：修正 → 构建 → 启动 ==" : "== 非交互停止 ==");
+        if (start) StartAll(); else StopAll();
+        _status = Probe.Check(_cfg);
+        return (_status, _log.ToList());
     }
 
     private int PageSize()
@@ -818,6 +843,11 @@ sealed class Tui
     private bool UseInflux => _cfg.GetBool("选项 (Toggles)", "UseInflux", false);
     // 验证模块模拟测试开关：同步写入网关 appsettings.Local.json 的 Verify:Simulate（测试用，生产应为 false）。
     private bool VerifySimulate => _cfg.GetBool("选项 (Toggles)", "VerifySimulate", true);
+    // Mock 源工程仅存在于带 tools/IottDevMock 的分支；main 缺失时不参与构建，沿用既有已构建的 Mock 二进制。
+    private bool MockProjectExists => File.Exists(Path.Combine(_root, "tools", "IottDevMock", "IottDevMock.csproj"));
+    // 验证模拟适配器属分支特性；main 无该实现时跳过写入 Verify:Simulate，避免污染原始配置。
+    private bool VerifySimulateSupported => File.Exists(Path.Combine(_root,
+        "MachineConnectionApi20260423", "MachineConnectionApi", "MachineConnectionApi", "Services", "SimulatedVerifyMeasurementAdapter.cs"));
     private string DockerExe => _cfg.Get("InfluxDB (Docker)", "DockerExe", "docker");
     private string DockerDesktopExe => _cfg.Get("InfluxDB (Docker)", "DockerDesktopExe", "");
     private string InfluxComposeFile => Path.Combine(_root, _cfg.Get("InfluxDB (Docker)", "ComposeFile", "deploy/influxdb/compose.yaml"));
@@ -895,7 +925,8 @@ sealed class Tui
     {
         yield return ("Host", Path.Combine(_root, "Host", "src", "IndustrialIoT.Host", "IndustrialIoT.Host.csproj"));
         yield return ("Gateway", Path.Combine(_root, "MachineConnectionApi20260423", "MachineConnectionApi", "MachineConnectionApi", "MachineConnectionApi.csproj"));
-        yield return ("Mock", Path.Combine(_root, "tools", "IottDevMock", "IottDevMock.csproj"));
+        if (MockProjectExists)
+            yield return ("Mock", Path.Combine(_root, "tools", "IottDevMock", "IottDevMock.csproj"));
     }
 
     private void StartAll()
@@ -1048,7 +1079,7 @@ sealed class Tui
         if (Probe.TcpOpen("127.0.0.1", port)) { Log($"Mock 已在运行 ({port})"); return; }
         var dir = Path.Combine(_root, "tools", "IottDevMock");
         var dll = Path.Combine(dir, "bin", "Debug", "net8.0", "IottDevMock.dll");
-        if (!File.Exists(dll)) { Log($"未找到 {dll}，请先构建 Mock"); return; }
+        if (!File.Exists(dll)) { Log($"未找到 Mock（{dll}），已跳过；main 无 tools/IottDevMock，可沿用既有测试服务"); return; }
         Runner.StartWindow("dotnet", $"\"{dll}\" serve --port {port}", _root, Background);
         Log($"Mock 启动: http://localhost:{port}");
     }
@@ -1144,6 +1175,7 @@ sealed class Tui
     /// <summary>把网关 appsettings.Local.json 的 Verify:Simulate 同步为启动器开关（会备份 .bak）。</summary>
     private void PatchGatewayVerifySimulate(string gatewayDir)
     {
+        if (!VerifySimulateSupported) return;
         var path = Path.Combine(gatewayDir, "appsettings.Local.json");
         try
         {
