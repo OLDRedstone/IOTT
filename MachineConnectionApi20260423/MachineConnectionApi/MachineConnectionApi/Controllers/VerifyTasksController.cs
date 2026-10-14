@@ -125,6 +125,19 @@ public sealed class VerifyTasksController : ControllerBase
         StatusCode(StatusCodes.Status503ServiceUnavailable,
             new { error = error.Message, taskId = error.TaskId, runId = error.RunId, resultPending = true });
 
+    [HttpPost("{id}/cancel")]
+    public ActionResult Cancel(string id)
+    {
+        var task = _store.ReadAll().FirstOrDefault(row => row.Id == id);
+        if (task is null) return NotFound();
+        if (task.Status != "running") return Conflict(new { error = "任务未在运行，无法终止" });
+        // Failed with a permanent reason is reported when it is not owned by this process
+        // (e.g. a run held by a previous process that is only replayed on recovery).
+        if (!_runner.CancelTask(id))
+            return Conflict(new { error = "运行不由当前进程持有，无法终止；请等待其自行结束或重启服务后恢复结果" });
+        return Accepted(new { taskId = id, message = "已请求终止当前验证任务，测量循环将在当前采样/传输结束后退出" });
+    }
+
     [HttpPost("recover-results")]
     public async Task<IActionResult> RecoverResults(CancellationToken ct)
     {
