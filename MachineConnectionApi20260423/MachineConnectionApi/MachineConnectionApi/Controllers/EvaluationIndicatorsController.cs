@@ -76,6 +76,21 @@ public sealed class EvaluationIndicatorsController : ControllerBase
         }
     }
 
+    [HttpPost("indicators/{category}/prepare-defaults")]
+    public async Task<ActionResult<EvaluationConfig>> PrepareDefaults(string category,
+        [FromBody] EvaluationPreparationRequest request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var preparation = new EvaluationSamplePreparation(_store, _attachmentDirectory);
+            return Ok(await preparation.PrepareAsync(category, request.Version, cancellationToken));
+        }
+        catch (EvaluationConfigConflictException error) { return Conflict(new { message = error.Message }); }
+        catch (ArgumentException error) { return BadRequest(new { message = error.Message }); }
+        catch (Exception error) when (error is IOException or JsonException)
+        { return Problem("测试样本准备失败，现有配置已保留，请检查附件存储。"); }
+    }
+
     [HttpGet("attachments/{id}")]
     public async Task<IActionResult> Download(string id, CancellationToken cancellationToken)
     {
@@ -110,3 +125,5 @@ public sealed class EvaluationIndicatorsController : ControllerBase
         { return Problem("评价指标保存失败，请保留当前修改后重试。"); }
     }
 }
+
+public sealed record EvaluationPreparationRequest(int Version);

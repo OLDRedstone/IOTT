@@ -2,7 +2,9 @@ namespace IndustrialIoT.Host.Controllers;
 
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using IndustrialIoT.Domain.Entities;
 using IndustrialIoT.Domain.Enums;
+using IndustrialIoT.Domain.ValueObjects;
 using IndustrialIoT.Domain.Interfaces;
 using IndustrialIoT.Protocols.Registration;
 using Microsoft.AspNetCore.Mvc;
@@ -34,18 +36,26 @@ public class ConnectionVerificationController : ControllerBase
         [FromBody] BatchTestRequest request,
         CancellationToken ct)
     {
-        var devices = request.DeviceIds is { Count: > 0 }
-            ? (await Task.WhenAll(request.DeviceIds.Select(id => _deviceRepo.GetByIdAsync(id, ct))))
-                .Where(d => d is not null).Select(d => d!).ToList()
-            : request.DeviceType is not null
-                ? (await _deviceRepo.GetByTypeAsync(request.DeviceType.Value, ct)).ToList()
-                : [];
+        List<Device> devices = [];
+        if (request.DeviceIds is { Count: > 0 })
+        {
+            // The scoped repository shares one DbContext; only driver I/O may run concurrently.
+            foreach (var deviceId in request.DeviceIds.Distinct(StringComparer.Ordinal))
+            {
+                var device = await _deviceRepo.GetByIdAsync(deviceId, ct);
+                if (device is not null) devices.Add(device);
+            }
+        }
+        else if (request.DeviceType is not null)
+        {
+            devices = (await _deviceRepo.GetByTypeAsync(request.DeviceType.Value, ct)).ToList();
+        }
 
         if (devices.Count == 0)
             return BadRequest("No devices found for the given criteria");
 
         var concurrency = Math.Clamp(request.Concurrency ?? 50, 1, 500);
-        var semaphore = new SemaphoreSlim(concurrency);
+        using var semaphore = new SemaphoreSlim(concurrency);
         var results = new ConcurrentBag<DeviceTestResult>();
         var sw = Stopwatch.StartNew();
 
@@ -58,7 +68,8 @@ public class ConnectionVerificationController : ControllerBase
                 try
                 {
                     await using var driver = _factory.Create(device!.Protocol, device.Brand, device.Model);
-                    var connectResult = await driver.ConnectAsync(device.ConnectionConfig, ct);
+                    var config = SiemensS7ConnectionOptions.ForConnection(device.Protocol, device.Model, device.ConnectionConfig);
+                    var connectResult = await driver.ConnectAsync(config, ct);
                     if (!connectResult.Success)
                     {
                         itemSw.Stop();

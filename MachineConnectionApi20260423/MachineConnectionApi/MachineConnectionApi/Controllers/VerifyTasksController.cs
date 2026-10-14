@@ -227,6 +227,7 @@ public sealed class VerifyTasksController : ControllerBase
             $"评价指标版本：{run.EvaluationSnapshot?.Version.ToString() ?? "历史未留痕"}",
             $"文件写入许可：{(run.OptionsSnapshot is null ? "历史未留痕" : run.OptionsSnapshot.AllowFileWrites ? "本轮已显式许可" : "未许可（只读）")}",
             $"并发目标：{(run.OptionsSnapshot?.ConcurrentDeviceIds is { Count: > 0 } targets ? string.Join("、", targets) : "未配置")}",
+            $"传输目标：{(run.OptionsSnapshot?.TransferDeviceIds is { Count: > 0 } transferTargets ? string.Join("、", transferTargets) : "当前机床文件通道")}",
         };
         var summaries = run.Metrics.Select(metric => (IReadOnlyList<string>)new[]
         {

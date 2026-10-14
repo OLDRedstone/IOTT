@@ -1,6 +1,6 @@
 # MySQL 本地部署与迁移
 
-两套后端均使用 MySQL 8.4 / Pomelo EF Core 8，InfluxDB 配置不变。
+两套后端使用 MySQL / Pomelo EF Core 8，InfluxDB 配置不变。默认安装目录为 MySQL 8.4；已有 MySQL 8.0.35 时可指定其安装目录，脚本读取实际服务器版本写入本地配置。
 
 ## 启动
 
@@ -11,7 +11,17 @@
 # 已构建时可加 -NoBuild
 ```
 
-脚本使用本机 MySQL 8.4 二进制创建独立实例，监听 `127.0.0.1:3307`；
+客户已安装 MySQL 8.0.35 时，在仓库根目录执行（按实际安装位置调整）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\mysql\Start-Backends.ps1 -MySqlBin 'C:\Program Files\MySQL\MySQL Server 8.0\bin'
+```
+
+此命令使用指定的 MySQL 程序创建项目独立实例；原有 3306 实例继续使用自己的数据目录。
+当前已核对驱动文档及脚本；MySQL 8.0.35 的完整初始化和业务运行仍需在对应环境验证。
+已有项目数据目录必须使用兼容的服务器版本启动，不能把已由 8.4 初始化的数据目录交给 8.0。
+
+脚本使用指定的本机 MySQL 二进制创建独立实例，监听 `127.0.0.1:3307`；
 不使用已有的 3306 实例。Host 地址为 `http://localhost:5173`，网关为 `http://localhost:5087`。
 实例以后台进程运行；电脑重启后再次执行上述命令。此脚本未注册 Windows 服务或开机任务。
 已运行的后端不会被脚本自动重启；更新代码后需先停止对应项目进程。
@@ -44,7 +54,7 @@ NCPrograms 保留全部程序传输记录；现存的 4 个本地程序文件随
 其余 128 个本地文件引用的源文件已缺失，记录保留，恢复后的本地路径置空；原路径可查网关快照清单。
 网关 App_Data 由 `../gateway-data/Restore-GatewayData.ps1` 在首次启动时恢复。
 不分发实时采样值或 InfluxDB 历史采样数据；历史库部署脚本仍保留，可用于新的采集。
-MySQL 8.4 运行程序仍需预先安装。
+MySQL 运行程序仍需预先安装，脚本不会自动下载数据库软件。
 
 ## SQL Server 数据迁移
 

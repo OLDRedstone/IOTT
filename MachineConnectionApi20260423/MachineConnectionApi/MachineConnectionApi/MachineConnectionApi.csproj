@@ -21,6 +21,7 @@
   <ItemGroup>
     <!-- 随源码分发的初始设备：网关与上游均无设备时自动加载（格式同「导出设备」文件） -->
     <Content Update="SeedData\**" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Include="../../../Shared/Messaging/*.cs" Link="Messaging/%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>

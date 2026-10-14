@@ -67,6 +67,7 @@
                     <el-button v-if="auth.hasPermission('config_manage')" @click="historyStorageSettingsVisible = true">
                         历史库设置
                     </el-button>
+                    <MqttForwardingStatus />
                     <el-input v-model="searchKeyword" placeholder="搜索设备名称/编号/IP/协议" style="width: 300px; margin-left: auto"
                         prefix-icon="Search" />
                     <input ref="deviceImportInputRef" type="file" accept=".csv,text/csv,.json,application/json" hidden
@@ -102,6 +103,12 @@
                                 </el-tag>
                                 <el-tooltip v-if="collectionStorageErrors[device.id]" :content="collectionStorageErrors[device.id]">
                                     <el-tag size="small" type="danger" style="margin-left: 6px">存储异常</el-tag>
+                                </el-tooltip>
+                                <el-tooltip v-if="collectionMqttErrors[device.id]" :content="collectionMqttErrors[device.id]">
+                                    <el-tag size="small" type="danger" style="margin-left: 6px">转发入队异常</el-tag>
+                                </el-tooltip>
+                                <el-tooltip v-if="collectionUploadErrors[device.id]" :content="collectionUploadErrors[device.id]">
+                                    <el-tag size="small" type="warning" style="margin-left: 6px">上报待确认</el-tag>
                                 </el-tooltip>
                                 <h3 class="device-name">{{ device.name }}</h3>
                                 <p class="device-code">设备编号：{{ device.code || "-" }} | {{ device.model }}</p>
@@ -713,8 +720,24 @@
             </template>
         </el-dialog>
         <el-dialog v-model="collectionDialogVisible" :title="`采集数据 - ${collectionDialogDeviceName || '未选择设备'}`" width="980px">
+            <div v-if="collectionBatchResults[collectionDeviceId]" class="collection-toolbar">
+                <el-tag :type="collectionStorageErrors[collectionDeviceId] ? 'danger' : 'info'">
+                    历史存储：{{ !collectionBatchResults[collectionDeviceId]!.storageEnabled ? '未启用' :
+                        collectionStorageErrors[collectionDeviceId] ? '异常' :
+                        `本批已保存 ${collectionBatchResults[collectionDeviceId]!.written} 条` }}
+                </el-tag>
+                <el-tag :type="collectionMqttErrors[collectionDeviceId] ? 'danger' : 'info'">
+                    MQTT：{{ !collectionBatchResults[collectionDeviceId]!.mqttEnabled ? '未启用' :
+                        collectionMqttErrors[collectionDeviceId] ? '入队异常' : '本批已入队，等待发送' }}
+                </el-tag>
+                <MqttForwardingStatus />
+            </div>
             <el-alert v-if="collectionStorageErrors[collectionDeviceId]" type="error" :closable="false" show-icon
                 :title="`历史数据未保存：${collectionStorageErrors[collectionDeviceId]}`" style="margin-bottom: 12px" />
+            <el-alert v-if="collectionMqttErrors[collectionDeviceId]" type="error" :closable="false" show-icon
+                :title="`MQTT 入队失败：${collectionMqttErrors[collectionDeviceId]}`" style="margin-bottom: 12px" />
+            <el-alert v-if="collectionUploadErrors[collectionDeviceId]" type="warning" :closable="false" show-icon
+                :title="`采集数据上报结果未确认：${collectionUploadErrors[collectionDeviceId]}`" style="margin-bottom: 12px" />
             <el-table :data="collectionRows" border size="small" height="420">
                 <el-table-column prop="displayName" label="显示名称" min-width="150" />
                 <el-table-column prop="path" label="路径" min-width="220" />
@@ -920,6 +943,7 @@ import { datacollectionApi } from "@/api/datacollection";
 import {
     telemetryInfluxApi,
     type InfluxTelemetryHistoryItem,
+    type TelemetryBatchResult,
 } from "@/api/telemetryInflux";
 import {
     machineConnectionProgramTransferApi,
@@ -929,6 +953,7 @@ import {
 import { buildProgramTransferConfig } from "./deviceTransferConfig";
 import { useAuthStore } from "@/stores/auth";
 import HistoryStorageSettings from "./HistoryStorageSettings.vue";
+import MqttForwardingStatus from "@/components/MqttForwardingStatus.vue";
 import SerialPortSettings from "../transfer/SerialPortSettings.vue";
 
 const auth = useAuthStore();
@@ -1488,6 +1513,9 @@ const pointDialogDeviceProtocol = ref("");
 const collectionRows = ref<CollectionRow[]>([]);
 const collectionRowsByDevice = ref<Record<string, CollectionRow[]>>({});
 const collectionStorageErrors = ref<Record<string, string>>({});
+const collectionMqttErrors = ref<Record<string, string>>({});
+const collectionUploadErrors = ref<Record<string, string>>({});
+const collectionBatchResults = ref<Record<string, TelemetryBatchResult>>({});
 const collectionLoading = ref(false);
 const collectionTimerIdsByDevice = ref<Record<string, number[]>>({});
 const collectionRunsByDevice = new Map<string, { starting: boolean }>();
@@ -4516,6 +4544,24 @@ function setCollectionStorageError(deviceId: string, message: string) {
     }
 }
 
+function applyCollectionBatchResult(deviceId: string, result: TelemetryBatchResult, expected: number) {
+    collectionBatchResults.value[deviceId] = result;
+    delete collectionUploadErrors.value[deviceId];
+    if (result.storageError || (result.storageEnabled && result.written < expected)) {
+        setCollectionStorageError(deviceId, result.storageError || result.reason ||
+            `本批次 ${expected} 条数据仅保存 ${result.written || 0} 条，请检查历史库设置`);
+    } else {
+        delete collectionStorageErrors.value[deviceId];
+    }
+    if (result.mqttError || (result.mqttEnabled && !result.mqttQueued && !result.mqttPublished)) {
+        const alreadyFailed = Boolean(collectionMqttErrors.value[deviceId]);
+        collectionMqttErrors.value[deviceId] = result.mqttError || "本批数据未进入 MQTT 待发队列";
+        if (!alreadyFailed) ElMessage.warning("采集数据转发入队失败，请查看“转发入队异常”提示。");
+    } else {
+        delete collectionMqttErrors.value[deviceId];
+    }
+}
+
 async function runCollectionBatch(deviceId: string, points: SavedCollectionPoint[]) {
     if (points.length === 0) return;
     const resp = await machineConnectionPointsApi.readTags(deviceId, {
@@ -4552,7 +4598,7 @@ async function runCollectionBatch(deviceId: string, points: SavedCollectionPoint
             collectedAt: new Date().toISOString(),
             points: points.map((p) => {
                 const r = map.get(normalizeTagAddress(p.address));
-                const hasError = !!r?.errorMessage?.trim();
+                const hasError = !r || !!r.errorMessage?.trim();
                 return {
                     name: p.displayName,
                     path: p.path,
@@ -4561,20 +4607,26 @@ async function runCollectionBatch(deviceId: string, points: SavedCollectionPoint
                     quality: r?.quality ?? "",
                     timestamp: r?.timestamp ?? "",
                     status: hasError ? "失败" : "成功",
-                    errorMessage: hasError ? r?.errorMessage ?? null : null,
+                    errorMessage: hasError ? r?.errorMessage?.trim() || "响应中缺少该点位" : null,
                 };
             }),
         })
         .then((result) => {
-            if (!result.skipped && result.written >= points.length) {
-                delete collectionStorageErrors.value[deviceId];
-                return;
-            }
-            setCollectionStorageError(deviceId, result.reason ||
-                `本批次 ${points.length} 条数据仅保存 ${result.written || 0} 条，请检查历史库设置`);
+            applyCollectionBatchResult(deviceId, result, points.length);
         })
         .catch((e: unknown) => {
-            setCollectionStorageError(deviceId, getApiErrorMessage(e, "历史库写入失败"));
+            const result = (e as { response?: { data?: TelemetryBatchResult } })?.response?.data;
+            if (typeof result?.written === "number" && typeof result.storageEnabled === "boolean" &&
+                typeof result.mqttEnabled === "boolean" && typeof result.mqttQueued === "boolean") {
+                applyCollectionBatchResult(deviceId, result, points.length);
+                return;
+            }
+            const alreadyUnconfirmed = Boolean(collectionUploadErrors.value[deviceId]);
+            collectionUploadErrors.value[deviceId] = getApiErrorMessage(e, "请检查网关连接");
+            delete collectionBatchResults.value[deviceId];
+            delete collectionStorageErrors.value[deviceId];
+            delete collectionMqttErrors.value[deviceId];
+            if (!alreadyUnconfirmed) ElMessage.warning("采集数据上报结果未确认，请检查历史记录和 MQTT 转发状态。");
         });
 }
 

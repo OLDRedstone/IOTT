@@ -36,7 +36,7 @@ public class TelemetryInfluxController : ControllerBase
         _logger = logger;
     }
 
-    /// <summary>将一批采集点写入 InfluxDB（与界面「数据采集」每轮 read 结果对应）。</summary>
+    /// <summary>独立保存历史数据和持久化 MQTT 待发批次；入队不等于已送达。</summary>
     [HttpPost("batch")]
     public async Task<IActionResult> WriteBatch(
         [FromBody] InfluxTelemetryBatchRequest? body,
@@ -46,19 +46,19 @@ public class TelemetryInfluxController : ControllerBase
             return BadRequest(new { error = "deviceId 必填" });
 
         var pts = body.Points ?? new List<InfluxTelemetryBatchPoint>();
-        if (pts.Count == 0)
-            return Ok(new { written = 0, mqttPublished = false });
-
         var influxOn = _influxOptions.Value.Enabled;
         var mqttOn = _mqttOptions.Value.Enabled;
-        if (!influxOn && !mqttOn)
+        if (pts.Count == 0 || (!influxOn && !mqttOn))
         {
             return Ok(new
             {
                 written = 0,
+                storageEnabled = influxOn,
+                mqttEnabled = mqttOn,
+                mqttQueued = false,
                 mqttPublished = false,
                 skipped = true,
-                reason = "InfluxDB 与 Mqtt 均未启用（appsettings 中 InfluxDB:Enabled / Mqtt:Enabled）",
+                reason = pts.Count == 0 ? "采集批次为空" : "历史库与 MQTT 均未启用",
             });
         }
 
@@ -79,49 +79,56 @@ public class TelemetryInfluxController : ControllerBase
         var deviceId = body.DeviceId.Trim();
         var batchTime = body.CollectedAt ?? DateTimeOffset.UtcNow;
 
-        if (influxOn)
+        string? storageError = null;
+        string? mqttError = null;
+        string? mqttMessageId = null;
+        var mqttQueued = false;
+        var written = 0;
+        async Task StoreAsync()
         {
+            if (!influxOn) return;
             try
             {
-                await _writer.WriteBatchAsync(deviceId, batchTime, mapped, ct);
+                written = await _writer.WriteCountAsync(deviceId, batchTime, mapped, ct);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Influx batch API 写入失败");
-                return StatusCode(StatusCodes.Status502BadGateway,
-                    new { error = "InfluxDB 写入失败", detail = ex.Message });
+                storageError = ex.Message;
             }
         }
 
-        if (mqttOn)
+        async Task QueueAsync()
         {
+            if (!mqttOn) return;
             try
             {
-                await _mqttPublisher.PublishCollectionBatchAsync(deviceId, batchTime, mapped, ct);
+                var receipt = await _mqttPublisher.PublishCollectionBatchAsync(deviceId, batchTime, mapped, ct);
+                mqttQueued = receipt.Queued;
+                mqttMessageId = receipt.MessageId;
+                if (!receipt.Queued) mqttError = receipt.Reason ?? "MQTT 未入队";
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "MQTT 发布失败: deviceId={DeviceId}", deviceId);
-                if (!influxOn)
-                {
-                    return StatusCode(StatusCodes.Status502BadGateway,
-                        new { error = "MQTT 发布失败", detail = ex.Message });
-                }
-
-                return Ok(new
-                {
-                    written = mapped.Count,
-                    mqttPublished = false,
-                    mqttError = ex.Message,
-                });
+                _logger.LogWarning(ex, "MQTT 持久化入队失败: deviceId={DeviceId}", deviceId);
+                mqttError = ex.Message;
             }
         }
 
-        return Ok(new
+        await Task.WhenAll(QueueAsync(), StoreAsync());
+        var result = new
         {
-            written = influxOn ? mapped.Count : 0,
-            mqttPublished = mqttOn,
-        });
+            written,
+            storageEnabled = influxOn,
+            storageError,
+            mqttEnabled = mqttOn,
+            mqttQueued,
+            mqttMessageId,
+            mqttPublished = false,
+            mqttError,
+        };
+        return written > 0 || mqttQueued ? Ok(result)
+            : StatusCode(StatusCodes.Status502BadGateway, result);
     }
 
     /// <summary>查询 InfluxDB 历史采集记录。</summary>

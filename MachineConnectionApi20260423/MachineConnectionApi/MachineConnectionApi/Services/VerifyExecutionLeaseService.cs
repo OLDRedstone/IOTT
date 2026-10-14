@@ -38,7 +38,8 @@ public sealed class VerifyExecutionLeaseService
         HashSet<string>? keys = null;
         if (!string.IsNullOrWhiteSpace(deviceId))
         {
-            var ids = new[] { deviceId.Trim() }.Concat(options?.ConcurrentDeviceIds ?? []).Distinct(StringComparer.Ordinal).ToArray();
+            var ids = new[] { deviceId.Trim() }.Concat(options?.ConcurrentDeviceIds ?? [])
+                .Concat(options?.TransferDeviceIds ?? []).Distinct(StringComparer.Ordinal).ToArray();
             if (_devices is not null) keys = ResolveTargetKeys(ids, _devices.ReadAll(), "网关 App_Data/devices.json");
             else if (allowIdOnlyReservation) keys = ids.Select(id => "device:" + id).ToHashSet(StringComparer.OrdinalIgnoreCase);
             if (_http is not null)

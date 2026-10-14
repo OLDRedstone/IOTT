@@ -4,6 +4,8 @@ using IndustrialIoT.Application.DTOs;
 using IndustrialIoT.Domain.Enums;
 using IndustrialIoT.Domain.Exceptions;
 using IndustrialIoT.Domain.Interfaces;
+using IndustrialIoT.Domain.ValueObjects;
+using IndustrialIoT.Protocols.Models;
 using IndustrialIoT.Protocols.Registration;
 using MediatR;
 
@@ -27,7 +29,13 @@ public class TestConnectionCommandHandler : IRequestHandler<TestConnectionComman
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         await using var driver = _driverFactory.Create(device.Protocol, device.Brand, device.Model);
-        var result = await driver.ConnectAsync(device.ConnectionConfig, ct);
+        ConnectionResult result;
+        try
+        {
+            var config = SiemensS7ConnectionOptions.ForConnection(device.Protocol, device.Model, device.ConnectionConfig);
+            result = await driver.ConnectAsync(config, ct);
+        }
+        catch (ArgumentException ex) { result = new() { Success = false, ErrorMessage = ex.Message }; }
         sw.Stop();
 
         if (result.Success)

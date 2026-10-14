@@ -54,7 +54,7 @@ public sealed class PlcCapabilitiesController : ControllerBase
             Protocols = ["SiemensS7", "OpcUa"],
             RequiredProperties = new Dictionary<string, IReadOnlyList<string>>
             {
-                ["SiemensS7"] = ["PlcType，可选 Rack/Slot/StringLength"],
+                ["SiemensS7"] = ["设备型号或 PlcType，可选 Rack/Slot/StringLength"],
                 ["OpcUa"] = [],
             },
             AddressExamples = ["M100", "M100.0", "MW100", "DB1.100", "DB1.100.0"],

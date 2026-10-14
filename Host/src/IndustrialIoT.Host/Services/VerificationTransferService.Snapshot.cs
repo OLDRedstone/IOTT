@@ -6,6 +6,7 @@ using IndustrialIoT.Domain.Entities;
 using IndustrialIoT.Domain.Enums;
 using IndustrialIoT.Domain.ValueObjects;
 using IndustrialIoT.Protocols.Abstractions;
+using IndustrialIoT.Protocols.FileTransfer;
 
 public sealed partial class VerificationTransferService
 {
@@ -18,13 +19,14 @@ public sealed partial class VerificationTransferService
         var captured = await CaptureAsync(deviceId, ct);
         if (captured is null) return null;
         var snapshot = ToSnapshot(captured);
-        if (!SupportsSafeProtocol(captured.Protocol)) return snapshot;
+        if (!SupportsSafeProtocol(captured.Protocol) || captured.ValidationError is not null) return snapshot;
         await using var driver = factory.Create(captured.Protocol, captured.Brand, captured.Model);
-        snapshot.Supported = driver is IVerificationFileTransfer;
+        snapshot.Supported = driver is IVerificationFileTransfer && driver.Protocol == captured.Protocol
+            && (captured.Protocol != ProtocolType.NFS || driver is NfsTransferDriver);
         return snapshot;
     }
 
-    private static bool SupportsSafeProtocol(ProtocolType protocol) => protocol == ProtocolType.FTP;
+    private static bool SupportsSafeProtocol(ProtocolType protocol) => protocol is ProtocolType.FTP or ProtocolType.SMB or ProtocolType.NFS;
 
     private async Task<Captured?> CaptureAsync(string deviceId, CancellationToken ct)
     {
@@ -47,7 +49,19 @@ public sealed partial class VerificationTransferService
             ConnectTimeout = transfer.ConnectTimeout, ReadTimeout = transfer.ReadTimeout,
             ExtendedProperties = new(transfer.ExtendedProperties, StringComparer.Ordinal),
         };
-        return new(primary, target, transfer?.Protocol ?? target.Protocol, target.Brand, target.Model, config);
+        var captured = new Captured(primary, target, transfer?.Protocol ?? target.Protocol, target.Brand, target.Model, config);
+        if (captured.Protocol == ProtocolType.SMB && config.Port != 445)
+            return captured with { ValidationError = $"SMB Direct TCP 仅支持端口 445；当前配置为 {config.Port}，请修正端口后验证。" };
+        if (captured.Protocol != ProtocolType.NFS) return captured;
+        try
+        {
+            var identity = await Task.Run(() => NfsTransferDriver.CaptureVerificationMount(config), ct).WaitAsync(ct);
+            return captured with { NfsIdentity = identity };
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or PlatformNotSupportedException)
+        {
+            return captured with { ValidationError = "NFS 挂载身份未确认：" + ex.Message };
+        }
     }
 
     private static Device CopyDevice(Device device) => new()
@@ -79,6 +93,7 @@ public sealed partial class VerificationTransferService
             } : null,
             TargetId = captured.Target.Id, EffectiveProtocol = captured.Protocol, EffectiveBrand = captured.Brand, EffectiveModel = captured.Model,
             EffectiveConfig = TokenConfig(captured.Config),
+            captured.NfsIdentity,
         });
         var token = Convert.ToHexString(HMACSHA256.HashData(SnapshotKey, raw));
         CryptographicOperations.ZeroMemory(raw);
@@ -86,6 +101,9 @@ public sealed partial class VerificationTransferService
         {
             DeviceId = primary.Id, Token = token, Protocol = captured.Protocol.ToString(),
             Host = captured.Config.Host, Port = captured.Config.Port,
+            Detail = captured.ValidationError ?? (captured.Protocol == ProtocolType.NFS
+                ? "使用 Host 已有挂载；操作系统已确认 NFS 来源，未单独核验配置端口；本轮还将核对独占文件身份。"
+                    + (OperatingSystem.IsWindows() ? "" : " 此平台会保留测试文件，清理状态将标记为未确认。") : ""),
             Primary = new()
             {
                 Protocol = primary.Protocol.ToString(), Host = config.Host, Port = config.Port,
@@ -110,7 +128,8 @@ public sealed partial class VerificationTransferService
         Options = new SortedDictionary<string, string>(config.ExtendedProperties, StringComparer.Ordinal),
     };
 
-    private sealed record Captured(Device Primary, Device Target, ProtocolType Protocol, string Brand, string Model, DeviceConnectionConfig Config);
+    private sealed record Captured(Device Primary, Device Target, ProtocolType Protocol, string Brand, string Model,
+        DeviceConnectionConfig Config, string? NfsIdentity = null, string? ValidationError = null);
 }
 
 public sealed class VerificationTransferSnapshot
@@ -118,6 +137,7 @@ public sealed class VerificationTransferSnapshot
     public string DeviceId { get; init; } = "";
     public string Token { get; init; } = "";
     public bool Supported { get; set; }
+    public string Detail { get; init; } = "";
     public string Protocol { get; init; } = "";
     public string Host { get; init; } = "";
     public int Port { get; init; }

@@ -14,11 +14,24 @@ public static class EvaluationAutomationRules
     {
         "industrial-protocol" => new() { Unit = "%", ScoringMode = "linear" },
         "communication-stability" => Bands("min", (30, 100), (20, 80), (10, 60), (0, 0)),
-        "max-connections" => Bands("count", (4, 100), (3, 80), (2, 60), (0, 0)),
+        "max-connections" => Bands("count", (100, 100), (0, 0)) with
+        { PassRule = new() { Threshold = 100, Unit = "count" } },
         "transfer-protocol" => Bands("count", (2, 100), (1, 60), (0, 0)),
         "file-integrity" => Bands("%", (100, 100), (75, 80), (50, 60), (0, 0)),
         "transfer-speed" => Bands("MB/s", (10, 100), (5, 80), (2, 60), (0, 0)),
         "file-size" => Bands("MB", (200, 100), (10, 80), (1, 60), (0, 0)),
+        _ => null,
+    };
+
+    public static EvaluationPassRule? DefaultCriterionFor(string metricId) => metricId switch
+    {
+        "industrial-protocol" => new() { Threshold = 100, Unit = "%" },
+        "communication-stability" => new() { Threshold = 30, Unit = "min" },
+        "max-connections" => new() { Threshold = 100, Unit = "count" },
+        "transfer-protocol" => new() { Threshold = 2, Unit = "count" },
+        "file-integrity" => new() { Threshold = 100, Unit = "%" },
+        "transfer-speed" => new() { Threshold = 10, Unit = "MB/s" },
+        "file-size" => new() { Threshold = 200, Unit = "MB" },
         _ => null,
     };
 
@@ -65,9 +78,9 @@ public static class EvaluationAutomationRules
         var test = rule.Test;
         if (test is null || !double.IsFinite(test.DurationMinutes) || test.DurationMinutes <= 0 || test.DurationMinutes > 1440
             || !double.IsFinite(test.SampleIntervalSeconds) || test.SampleIntervalSeconds <= 0 || test.SampleIntervalSeconds > 86400
-            || test.MaxConnections is < 1 or > 64 || test.FailureLimit is < 1 or > 100
+            || test.MaxConnections is < 1 or > 100 || test.FailureLimit is < 1 or > 100
             || test.ConcurrencyMode is not ("devices" or "connections" or "sessions"))
-            throw new ArgumentException("测试时长应大于 0 且不超过 1440 分钟；间隔大于 0 且不超过 86400 秒；并发上限 1–64，失败次数 1–100。");
+            throw new ArgumentException("测试时长应大于 0 且不超过 1440 分钟；间隔大于 0 且不超过 86400 秒；并发上限 1–100，失败次数 1–100。");
         if (test.ReadAddress is null || test.ReadAddress.Length > 500 || test.ReadAddress.Any(char.IsControl)
             || !ReadDataTypes.Contains(test.ReadDataType ?? ""))
             throw new ArgumentException("读取点位或数据类型无效。");

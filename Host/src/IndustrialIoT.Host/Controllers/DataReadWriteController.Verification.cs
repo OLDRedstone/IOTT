@@ -47,8 +47,7 @@ public partial class DataReadWriteController
             return StatusCode(503, new { deviceId, error = "Verification configuration executor is unavailable." });
         var path = request.Directory.Replace('\\', '/').TrimEnd('/');
         var result = await _verification.ExecuteAsync(deviceId, request.Verification, true, "directory-read",
-            // NFS initialization can create a local mount directory; static roots in other drivers
-            // do not constitute protocol I/O. Reject these before ConnectAsync, not after it.
+            // Cached NFS directories and static roots do not prove protocol I/O.
             protocol => protocol is ProtocolType.FTP or ProtocolType.SMB or ProtocolType.NCLink or ProtocolType.NCLinkApi
                 || protocol == ProtocolType.FOCAS && path.Equals("/Programs", StringComparison.OrdinalIgnoreCase),
             driver => driver is IAddressSpaceBrowser && driver is INCProgramTransfer,

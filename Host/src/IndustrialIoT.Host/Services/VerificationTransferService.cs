@@ -2,7 +2,9 @@ namespace IndustrialIoT.Host.Services;
 
 using System.Diagnostics;
 using System.Security.Cryptography;
+using IndustrialIoT.Domain.Enums;
 using IndustrialIoT.Domain.Interfaces;
+using IndustrialIoT.Protocols.FileTransfer;
 using IndustrialIoT.Protocols.Abstractions;
 using IndustrialIoT.Protocols.Models;
 using IndustrialIoT.Protocols.Registration;
@@ -43,6 +45,7 @@ public sealed partial class VerificationTransferService(
         if (!HashEquals(snapshot.Token, request.SnapshotToken))
             return Empty("设备传输配置在本轮快照后变化（含凭据/关联设备）；停止测试，不向新目标写入。", snapshot, configurationChanged: true);
         if (!SupportsSafeProtocol(captured.Protocol)) return Empty("实际协议尚无验证专用原子创建契约；FOCAS内部程序号不能用唯一文件名保护。", snapshot);
+        if (captured.ValidationError is not null) return Empty(captured.ValidationError + "；未连接、未创建测试文件。", snapshot);
 
         IProtocolDriver? driver = null;
         IVerificationFileLease? lease = null;
@@ -55,6 +58,10 @@ public sealed partial class VerificationTransferService(
             driver = factory.Create(captured.Protocol, captured.Brand, captured.Model);
             if (driver is not IVerificationFileTransfer safeTransfer)
                 return Empty("实际驱动未实现验证专用原子创建契约。", snapshot);
+            if (driver.Protocol != captured.Protocol || captured.Protocol == ProtocolType.NFS && driver is not NfsTransferDriver)
+                return Empty("实际驱动与冻结协议或 NFS 挂载验证契约不符；未连接传输目标。", snapshot);
+            if (driver is NfsTransferDriver nfs)
+                nfs.BindVerificationMount(captured.NfsIdentity!);
             // Captured is a deep copy, including credentials/options. Never resolve the device again
             // between mkdir, upload, read-back, cleanup, or reconnect within this request.
             var connected = await driver.ConnectAsync(captured.Config, ct);
@@ -85,15 +92,19 @@ public sealed partial class VerificationTransferService(
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
+            var acquisitionFailure = ex as NfsVerificationFileAcquisitionException;
             // A failed mkdir/connection is not an observed file result. An attempted upload/read
             // failure is evidence of this run, not an Unsupported success or an invented checksum.
             result = new()
             {
                 Supported = true, HasEvidence = attempted, Success = false, IntegrityVerified = false,
                 DeviceId = deviceId, SnapshotToken = snapshot.Token, Protocol = snapshot.Protocol,
-                RemoteName = request.RemoteName, RemotePath = lease?.RemotePath ?? "",
+                RemoteName = request.RemoteName, RemotePath = lease?.RemotePath ?? acquisitionFailure?.CandidatePath ?? "",
+                CleanupSucceeded = acquisitionFailure is null ? null : false,
                 UploadedBytes = uploaded, UploadSeconds = uploadSeconds, SourceSha256 = sourceHash,
-                Detail = attempted ? $"本轮文件上传/回读失败（{ex.GetType().Name}）。" : $"未取得原子独占测试路径（{ex.GetType().Name}）；未上传、不复用既有路径。",
+                Detail = acquisitionFailure is not null
+                    ? $"NFS 候选文件已创建，但身份及清理未确认；未上传。路径：{acquisitionFailure.CandidatePath}。"
+                    : attempted ? $"本轮文件上传/回读失败（{ex.GetType().Name}）。" : $"未取得原子独占测试路径（{ex.GetType().Name}）；未上传、不复用既有路径。",
             };
             logger.LogWarning("Verification transfer {Stage} failed for device {DeviceId}: {ErrorType}",
                 attempted ? "round-trip" : "acquisition", deviceId, ex.GetType().Name);
@@ -112,7 +123,9 @@ public sealed partial class VerificationTransferService(
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
                     result.CleanupSucceeded = false;
-                    result.Detail += $" 本轮独占对象清理未确认（{ex.GetType().Name}），需人工核对：{lease.RemotePath}。";
+                    result.Detail += driver is NfsTransferDriver && !OperatingSystem.IsWindows()
+                        ? $" 此平台的 NFS 测试文件已保留，清理未确认；路径：{lease.RemotePath}。"
+                        : $" 本轮独占对象清理未确认（{ex.GetType().Name}），需人工核对：{lease.RemotePath}。";
                     // Request cancellation prevents returning JSON; retain cleanup evidence in Host logs.
                     logger.LogWarning("Verification cleanup unconfirmed for {DeviceId}, owned path {Path}: {ErrorType}",
                         deviceId, lease.RemotePath, ex.GetType().Name);

@@ -33,7 +33,7 @@ public class CreateDeviceCommandHandler : IRequestHandler<CreateDeviceCommand, D
                 Password = req.Password,
                 ConnectTimeout = TimeSpan.FromMilliseconds(req.ConnectTimeoutMs ?? 10_000),
                 ReadTimeout = TimeSpan.FromMilliseconds(req.ReadTimeoutMs ?? 5_000),
-                ExtendedProperties = req.ExtendedProperties ?? [],
+                ExtendedProperties = SiemensS7ConnectionOptions.Normalize(req.Protocol, req.Model, req.ExtendedProperties),
                 Transfer = MapTransferRequest(req.Transfer),
             },
         };

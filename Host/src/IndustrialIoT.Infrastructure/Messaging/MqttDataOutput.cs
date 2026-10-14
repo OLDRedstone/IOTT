@@ -1,6 +1,7 @@
 namespace IndustrialIoT.Infrastructure.Messaging;
 
 using System.Text.Json;
+using IndustrialIoT.Messaging;
 using IndustrialIoT.Protocols.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -11,6 +12,10 @@ public sealed class MqttOutputOptions
 {
     public const string SectionName = "DataOutput:Mqtt";
 
+    public bool Enabled { get; set; } = true;
+    public string OutboxDirectory { get; set; } = Path.Combine(AppContext.BaseDirectory, "App_Data", "mqtt-outbox");
+    public int ConnectTimeoutSeconds { get; set; } = 5;
+    public int PublishTimeoutSeconds { get; set; } = 10;
     public string BrokerHost { get; set; } = "localhost";
     public int BrokerPort { get; set; } = 1883;
     public string ClientId { get; set; } = $"industrial-iot-{Environment.MachineName}";
@@ -19,17 +24,20 @@ public sealed class MqttOutputOptions
     public string? Password { get; set; }
 }
 
-public sealed class MqttDataOutput : IDataOutput, IAsyncDisposable
+public sealed class MqttDataOutput : DurableMqttOutbox, IDataOutput, IAsyncDisposable
 {
     private readonly MqttOutputOptions _options;
     private readonly ILogger<MqttDataOutput> _logger;
     private readonly IMqttClient _client;
     private readonly JsonSerializerOptions _jsonOptions;
-    private readonly SemaphoreSlim _connectLock = new(1, 1);
+    private int _disposeStarted;
 
     public string Name => "MQTT";
+    protected override bool Enabled => _options.Enabled;
+    protected override bool IsConnected => _client.IsConnected;
 
     public MqttDataOutput(IOptions<MqttOutputOptions> options, ILogger<MqttDataOutput> logger)
+        : base(options.Value.OutboxDirectory, logger)
     {
         _options = options.Value;
         _logger = logger;
@@ -43,59 +51,41 @@ public sealed class MqttDataOutput : IDataOutput, IAsyncDisposable
         _client.DisconnectedAsync += OnDisconnectedAsync;
     }
 
-    public async Task InitializeAsync(CancellationToken ct)
+    public Task InitializeAsync(CancellationToken ct)
     {
-        await ConnectAsync(ct);
-        _logger.LogInformation("MQTT output initialized — broker {Host}:{Port}, clientId {ClientId}",
-            _options.BrokerHost, _options.BrokerPort, _options.ClientId);
+        ct.ThrowIfCancellationRequested();
+        return Task.CompletedTask;
     }
 
     public async Task WriteAsync(CollectedDataBatch batch, CancellationToken ct)
     {
-        await EnsureConnectedAsync(ct);
-
+        if (!Enabled) return;
+        var messageId = Guid.NewGuid().ToString("N");
         var topic = _options.TopicPattern.Replace("{deviceId}", batch.DeviceId);
-        var payload = JsonSerializer.SerializeToUtf8Bytes(batch, _jsonOptions);
-
-        var message = new MqttApplicationMessageBuilder()
-            .WithTopic(topic)
-            .WithPayload(payload)
-            .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
-            .Build();
-
-        await _client.PublishAsync(message, ct);
-
-        _logger.LogDebug("MQTT published {Bytes} bytes to {Topic}", payload.Length, topic);
+        var payload = JsonSerializer.Serialize(new { messageId, batch.DeviceId, batch.GroupName,
+            batch.Values, batch.CollectedAt, batch.CollectionDuration }, _jsonOptions);
+        var result = await EnqueueAsync(batch.DeviceId, topic, payload, 1, messageId, ct);
+        if (!result.Queued) throw new IOException(result.Reason ?? "MQTT batch could not be persisted.");
     }
 
     public Task FlushAsync(CancellationToken ct)
     {
-        // MQTT publishes immediately; nothing to flush
+        // WriteAsync flushes each accepted batch to disk before returning.
         return Task.CompletedTask;
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
+        Dispose();
+        return ValueTask.CompletedTask;
+    }
+
+    public override void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposeStarted, 1) != 0) return;
+        base.Dispose();
         _client.DisconnectedAsync -= OnDisconnectedAsync;
-
-        if (_client.IsConnected)
-        {
-            var disconnectOptions = new MqttClientDisconnectOptionsBuilder()
-                .WithReason(MqttClientDisconnectOptionsReason.NormalDisconnection)
-                .Build();
-
-            try
-            {
-                await _client.DisconnectAsync(disconnectOptions);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error during MQTT disconnect");
-            }
-        }
-
         _client.Dispose();
-        _connectLock.Dispose();
     }
 
     private async Task ConnectAsync(CancellationToken ct)
@@ -111,34 +101,33 @@ public sealed class MqttDataOutput : IDataOutput, IAsyncDisposable
         }
 
         var mqttOptions = optionsBuilder.Build();
-        await _client.ConnectAsync(mqttOptions, ct);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(Math.Max(1, _options.ConnectTimeoutSeconds)));
+        var result = await _client.ConnectAsync(mqttOptions, timeout.Token);
+        if ((int)result.ResultCode >= 128) throw new IOException($"MQTT connection rejected: {result.ResultCode}");
     }
 
-    private async Task EnsureConnectedAsync(CancellationToken ct)
+    protected override async Task DeliverAsync(MqttOutboxMessage message, CancellationToken ct)
     {
-        if (_client.IsConnected)
-            return;
-
-        await _connectLock.WaitAsync(ct);
-        try
+        if (!_client.IsConnected)
         {
-            if (_client.IsConnected)
-                return;
-
             _logger.LogInformation("MQTT reconnecting to {Host}:{Port}", _options.BrokerHost, _options.BrokerPort);
             await ConnectAsync(ct);
         }
-        finally
-        {
-            _connectLock.Release();
-        }
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(Math.Max(1, _options.PublishTimeoutSeconds)));
+        var mqttMessage = new MqttApplicationMessageBuilder().WithTopic(message.Topic)
+            .WithPayload(message.Payload)
+            .WithQualityOfServiceLevel((MqttQualityOfServiceLevel)message.QualityOfService).Build();
+        var result = await _client.PublishAsync(mqttMessage, timeout.Token);
+        if ((int)result.ReasonCode >= 128) throw new IOException($"MQTT publish rejected: {result.ReasonCode}");
     }
 
     private async Task OnDisconnectedAsync(MqttClientDisconnectedEventArgs args)
     {
         if (args.ClientWasConnected)
         {
-            _logger.LogWarning("MQTT disconnected (reason: {Reason}). Will reconnect on next write.",
+            _logger.LogWarning("MQTT disconnected (reason: {Reason}). Queued batches will retry in the background.",
                 args.Reason);
         }
 

@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using IndustrialIoT.Messaging;
 using MachineConnectionApi.Options;
 using Microsoft.Extensions.Options;
 using MQTTnet;
@@ -12,21 +13,24 @@ namespace MachineConnectionApi.Services;
 
 public interface IMqttTelemetryPublisher
 {
-    /// <summary>将一批采集点以 JSON 发布到 MQTT（单条消息包含 deviceId、时间与全部点位）。</summary>
-    Task PublishCollectionBatchAsync(
+    /// <summary>将采集批次持久化入队，后台收到 MQTT 确认后移除。</summary>
+    Task<MqttEnqueueResult> PublishCollectionBatchAsync(
         string deviceId,
         DateTimeOffset collectedAt,
         IReadOnlyList<InfluxTelemetryPoint> points,
         CancellationToken ct = default);
 }
 
-public sealed class MqttTelemetryPublisher : IMqttTelemetryPublisher, IDisposable
+public sealed class MqttTelemetryPublisher : DurableMqttOutbox, IMqttTelemetryPublisher
 {
     private readonly IOptionsMonitor<MqttOptions> _options;
     private readonly ILogger<MqttTelemetryPublisher> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly IMqttClient _client;
     private string? _connectFingerprint;
+    private int _disposed;
+    protected override bool Enabled => _options.CurrentValue.Enabled;
+    protected override bool IsConnected => _client.IsConnected;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -37,13 +41,14 @@ public sealed class MqttTelemetryPublisher : IMqttTelemetryPublisher, IDisposabl
     public MqttTelemetryPublisher(
         IOptionsMonitor<MqttOptions> options,
         ILogger<MqttTelemetryPublisher> logger)
+        : base(options.CurrentValue.OutboxDirectory, logger)
     {
         _options = options;
         _logger = logger;
         _client = new MqttFactory().CreateMqttClient();
     }
 
-    public async Task PublishCollectionBatchAsync(
+    public async Task<MqttEnqueueResult> PublishCollectionBatchAsync(
         string deviceId,
         DateTimeOffset collectedAt,
         IReadOnlyList<InfluxTelemetryPoint> points,
@@ -51,15 +56,11 @@ public sealed class MqttTelemetryPublisher : IMqttTelemetryPublisher, IDisposabl
     {
         var opt = _options.CurrentValue;
         if (!opt.Enabled || points.Count == 0)
-            return;
+            return new(false, null, opt.Enabled ? "Empty batch" : "MQTT disabled");
 
-        if (string.IsNullOrWhiteSpace(opt.Host))
-        {
-            _logger.LogWarning("MQTT 已启用但 Host 为空，跳过发布");
-            return;
-        }
-
+        var messageId = Guid.NewGuid().ToString("N");
         var body = new MqttTelemetryBatchDto(
+            messageId,
             deviceId,
             collectedAt,
             points.Select(static p => new MqttTelemetryPointDto(
@@ -73,10 +74,19 @@ public sealed class MqttTelemetryPublisher : IMqttTelemetryPublisher, IDisposabl
                 p.ErrorMessage)).ToList());
 
         var json = JsonSerializer.Serialize(body, JsonOptions);
-        var payload = Encoding.UTF8.GetBytes(json);
         var topic = BuildTopic(opt.TopicPrefix, deviceId);
         var qos = ToQos(opt.QualityOfService);
+        return await EnqueueAsync(deviceId, topic, json, (int)qos, messageId, ct);
+    }
 
+    protected override async Task DeliverAsync(MqttOutboxMessage pending, CancellationToken ct)
+    {
+        var opt = _options.CurrentValue;
+        if (string.IsNullOrWhiteSpace(opt.Host))
+            throw new InvalidOperationException("MQTT Host is empty; queued messages are retained.");
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(Math.Max(3, opt.PublishTimeoutSeconds)));
+        ct = timeout.Token;
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -84,24 +94,22 @@ public sealed class MqttTelemetryPublisher : IMqttTelemetryPublisher, IDisposabl
             {
                 await EnsureConnectedAsync(opt, ct).ConfigureAwait(false);
                 var message = new MqttApplicationMessageBuilder()
-                    .WithTopic(topic)
-                    .WithPayload(payload)
-                    .WithQualityOfServiceLevel(qos)
+                    .WithTopic(pending.Topic)
+                    .WithPayload(pending.Payload)
+                    .WithQualityOfServiceLevel(ToQos(pending.QualityOfService))
                     .WithRetainFlag(false)
                     .Build();
 
-                await _client.PublishAsync(message, ct).ConfigureAwait(false);
+                var result = await _client.PublishAsync(message, ct).ConfigureAwait(false);
+                if ((int)result.ReasonCode >= 128)
+                    throw new IOException($"MQTT publish rejected: {result.ReasonCode}");
             }
             catch (Exception ex)
             {
                 _logger.LogError(
                     ex,
-                    "MQTT 发布失败: deviceId={DeviceId}, topic={Topic}, qos={Qos}, payloadBytes={PayloadBytes}, pointCount={PointCount}",
-                    deviceId,
-                    topic,
-                    (int)qos,
-                    payload.Length,
-                    points.Count);
+                    "MQTT 发布失败，保留待发消息: messageId={MessageId}, deviceId={DeviceId}, topic={Topic}",
+                    pending.MessageId, pending.DeviceId, pending.Topic);
                 throw;
             }
         }
@@ -155,13 +163,12 @@ public sealed class MqttTelemetryPublisher : IMqttTelemetryPublisher, IDisposabl
     }
 
     private static string ConnectFingerprint(MqttOptions opt) =>
-        $"{opt.Host}|{opt.Port}|{opt.UseTls}|{opt.Username}|{opt.ClientId}";
+        $"{opt.Host}|{opt.Port}|{opt.UseTls}|{opt.Username}|{opt.Password}|{opt.ClientId}";
 
     private static MqttQualityOfServiceLevel ToQos(int q) =>
         q switch
         {
             2 => MqttQualityOfServiceLevel.ExactlyOnce,
-            0 => MqttQualityOfServiceLevel.AtMostOnce,
             _ => MqttQualityOfServiceLevel.AtLeastOnce,
         };
 
@@ -187,8 +194,10 @@ public sealed class MqttTelemetryPublisher : IMqttTelemetryPublisher, IDisposabl
         return new string(buffer[..n]);
     }
 
-    public void Dispose()
+    public override void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        base.Dispose();
         try
         {
             // 应用关停路径上的同步等待需设上限，broker 无响应时不能卡住整个进程退出
@@ -207,6 +216,7 @@ public sealed class MqttTelemetryPublisher : IMqttTelemetryPublisher, IDisposabl
 }
 
 internal sealed record MqttTelemetryBatchDto(
+    string MessageId,
     string DeviceId,
     DateTimeOffset CollectedAt,
     IReadOnlyList<MqttTelemetryPointDto> Points);

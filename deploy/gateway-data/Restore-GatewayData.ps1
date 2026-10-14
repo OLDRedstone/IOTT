@@ -3,6 +3,25 @@ param(
     [string]$SnapshotPath = (Join-Path $PSScriptRoot 'SeedData')
 )
 
+function Expand-SeedAttachment([string]$Source, [string]$Destination, [long]$ExpectedBytes) {
+    $sourceStream = [IO.File]::OpenRead($Source)
+    try {
+        $compressed = [IO.Compression.GZipStream]::new($sourceStream, [IO.Compression.CompressionMode]::Decompress)
+        try {
+            $output = [IO.File]::Open($Destination, 'CreateNew', 'Write', 'None')
+            try {
+                $buffer = [byte[]]::new(81920)
+                $written = [long]0
+                while (($read = $compressed.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                    $written += $read
+                    if ($written -gt $ExpectedBytes) { throw 'Expanded attachment exceeds its declared size.' }
+                    $output.Write($buffer, 0, $read)
+                }
+            } finally { $output.Dispose() }
+        } finally { $compressed.Dispose() }
+    } finally { $sourceStream.Dispose() }
+}
+
 $ErrorActionPreference = 'Stop'
 $target = [IO.Path]::GetFullPath($TargetAppData).TrimEnd('\', '/')
 $snapshot = [IO.Path]::GetFullPath($SnapshotPath).TrimEnd('\', '/')
@@ -33,16 +52,29 @@ try {
     }
     $manifestPath = Join-Path $snapshot 'manifest.json'
     $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($manifest.formatVersion -ne 1) { throw 'Unsupported gateway snapshot format.' }
+    if ($manifest.formatVersion -notin 1, 2) { throw 'Unsupported gateway snapshot format.' }
     $entries = @($manifest.files | Where-Object { $_.path.StartsWith('App_Data/', [StringComparison]::Ordinal) })
     if ($entries.Count -eq 0) { throw 'The snapshot contains no gateway application data.' }
     $sourceRoot = Join-Path $snapshot 'App_Data'
     $sourcePrefix = [IO.Path]::GetFullPath($sourceRoot) + [IO.Path]::DirectorySeparatorChar
+    $destinations = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($entry in $entries) {
         $source = [IO.Path]::GetFullPath((Join-Path $snapshot $entry.path))
         if (-not $source.StartsWith($sourcePrefix, [StringComparison]::OrdinalIgnoreCase)) {
             throw 'Snapshot file path escapes App_Data.'
         }
+        $restored = $source
+        if ($entry.compression) {
+            if ($manifest.formatVersion -ne 2 -or $entry.compression -ne 'gzip' -or
+                $entry.path -cnotmatch '^App_Data/evaluation-attachments/[0-9a-f]{32}\.bin\.gz$' -or
+                $entry.uncompressedBytes -notmatch '^\d+$' -or
+                [long]$entry.uncompressedBytes -gt 200MB -or
+                $entry.uncompressedSha256 -notmatch '^[0-9a-fA-F]{64}$') {
+                throw "Invalid compressed attachment manifest: $($entry.path)"
+            }
+            $restored = $source.Substring(0, $source.Length - 3)
+        }
+        if (-not $destinations.Add($restored)) { throw "Duplicate restore destination: $($entry.path)" }
         $file = Get-Item -LiteralPath $source -Force
         if ($file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
             throw "Snapshot entry is not a regular file: $($entry.path)"
@@ -56,10 +88,21 @@ try {
     New-Item -ItemType Directory -Path $stage | Out-Null
     foreach ($entry in $entries) {
         $relative = $entry.path.Substring('App_Data/'.Length)
-        $destination = Join-Path $stage $relative
+        if ($entry.compression) { $relative = $relative.Substring(0, $relative.Length - 3) }
+        $destination = [IO.Path]::GetFullPath((Join-Path $stage $relative))
+        if (-not $destination.StartsWith($stage + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'Restore destination escapes the staging directory.'
+        }
         New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
-        [IO.File]::Copy((Join-Path $snapshot $entry.path), $destination, $false)
-        if ((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -ne $entry.sha256) {
+        $expectedBytes, $expectedHash = $entry.bytes, $entry.sha256
+        if ($entry.compression) {
+            $expectedBytes, $expectedHash = $entry.uncompressedBytes, $entry.uncompressedSha256
+            Expand-SeedAttachment (Join-Path $snapshot $entry.path) $destination $expectedBytes
+        } else {
+            [IO.File]::Copy((Join-Path $snapshot $entry.path), $destination, $false)
+        }
+        if ((Get-Item -LiteralPath $destination).Length -ne $expectedBytes -or
+            (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -ne $expectedHash) {
             throw "Copied file integrity check failed: $relative"
         }
     }

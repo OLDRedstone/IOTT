@@ -428,6 +428,7 @@ public static class VerifyTaskOptionsValidation
         if (options.ProbeTimeoutMs is < 500 or > 30000 || options.CommunicationRounds is < 1 or > 100
             || options.MaxParallelTargets is < 1 or > 100 || options.RequiredMinConcurrentSuccess is < 0 or > 100)
             throw new ArgumentException("测试参数超出安全范围：超时500–30000ms，轮数/并发上限1–100。");
+        ValidateTransferTargets(options.TransferDeviceIds, devices);
         var ids = options.ConcurrentDeviceIds;
         if (ids is null) return;
         if (ids.Count > 100 || ids.Any(id => string.IsNullOrWhiteSpace(id) || id != id.Trim() || id.Length > 200)
@@ -445,6 +446,20 @@ public static class VerifyTaskOptionsValidation
                 || !endpoints.Add($"{device.Host.Trim()}:{device.Port}"))
                 throw new ArgumentException("并发设备必须具有有效且互不重复的网络端点。");
         }
+    }
+
+    public static void ValidateTransferTargets(IReadOnlyList<string>? ids, IDeviceStore? devices = null)
+    {
+        if (ids is null) return;
+        if (ids.Count > 100 || ids.Any(id => string.IsNullOrWhiteSpace(id) || id != id.Trim() || id.Length > 200)
+            || ids.Distinct(StringComparer.Ordinal).Count() != ids.Count)
+            throw new ArgumentException("传输设备目标必须为不重复的有效设备ID，最多100个。");
+        if (devices is null) return;
+        var all = devices.ReadAll();
+        foreach (var id in ids)
+            if (all.Count(device => device.Id == id) != 1)
+                throw new ArgumentException($"传输设备 {id} 不存在或标识不唯一。");
+        VerifyExecutionLeaseService.ResolveTargetKeys(ids, all, "传输目标设备库");
     }
 }
 

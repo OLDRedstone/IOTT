@@ -14,10 +14,10 @@ internal static partial class CsConnectivityServiceRegressionTests
         ConfigurationSurvivesRestartSafely();
         await FtpLocalFilesSurviveRestart();
         await FtpEmptyRootKeepsMemoryBehavior();
+        await FtpRoundTripIntegrity();
         await AnonymousFtpServerIsRejected();
         await UnauthenticatedFtpDeleteIsRejected();
-        await ParallelTestsAreRejectedWhileBusy();
-        await ParallelTestBudgetIsEnforced();
+        await ParallelTargetScheduling();
         await RunningServerUpdateIsRejected();
         DataSourceLifecycleIsSerialized();
     }
@@ -136,7 +136,7 @@ internal static partial class CsConnectivityServiceRegressionTests
             try
             {
                 await service.RunParallelTestAsync(
-                    new CsParallelTestRequest("127.0.0.1", 0, 1, 1, 1000),
+                    new CsParallelTestRequest("127.0.0.1", port, 1, 1, 1000),
                     CancellationToken.None);
                 throw new InvalidOperationException("Concurrent parallel test was accepted");
             }
@@ -154,16 +154,22 @@ internal static partial class CsConnectivityServiceRegressionTests
         var directory = Path.Combine(Path.GetTempPath(), $"cs-budget-{Guid.NewGuid():N}");
         try
         {
+            using var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
             using var service = Create(Path.Combine(directory, "cs.json"));
             try
             {
                 // 1000 目标 × 并发 1 × 保持 60s：保持时长累计必然超过 120 秒上限，事前拒绝。
                 await service.RunParallelTestAsync(
-                    new CsParallelTestRequest("127.0.0.1", 1, 1000, 1, 1000, 60_000),
+                    new CsParallelTestRequest("127.0.0.1", port, 1000, 1, 1000, 60_000),
                     CancellationToken.None);
                 throw new InvalidOperationException("Oversized parallel test was accepted");
             }
             catch (ArgumentException ex) when (ex.Message.Contains("120 秒")) { }
+            var retry = await service.RunSameTargetParallelTestAsync(
+                new CsSameTargetParallelTestRequest("127.0.0.1", port, 1, 1, 1000), CancellationToken.None);
+            AssertEqual(1, retry.Success, "FailedParallelTestReleasedTargets");
         }
         finally
         {

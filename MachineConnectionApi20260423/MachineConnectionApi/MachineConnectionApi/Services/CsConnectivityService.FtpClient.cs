@@ -8,10 +8,46 @@ namespace MachineConnectionApi.Services;
 /// <summary>CsConnectivityService FTP 客户端部分：基于 FluentFTP 的真实 FTP 验证。</summary>
 public sealed partial class CsConnectivityService
 {
-    /// <summary>
-    /// 真实 FTP 客户端验证：登录(USER/PASS) + 验 21 端口 + 列目录；
-    /// fullRoundTrip=true 时再做上传/下载/删除 round-trip（验证上传下载能力）。
-    /// </summary>
+    private async Task ProbeFtpRoundTripAsync(AsyncFtpClient client, string directory, List<string> steps, CancellationToken ct)
+    {
+        var ownedDirectory = directory.TrimEnd('/') + $"/__cs_probe_{Guid.NewGuid():N}";
+        var acquired = await client.Execute("MKD " + ownedDirectory, ct);
+        if (acquired.Code != "257")
+            throw new IOException($"测试目录创建未确认（MKD {acquired.Code}），未写入或清理：{ownedDirectory}");
+        var name = ownedDirectory + "/probe.txt";
+        var payload = Encoding.UTF8.GetBytes($"cs-ftp-probe {Now()}");
+        Exception? transferError = null;
+        try
+        {
+            var status = await client.UploadBytes(payload, name, FtpRemoteExists.NoCheck, false, token: ct);
+            if (status != FtpStatus.Success) throw new IOException($"上传失败({status})");
+            steps.Add("上传成功");
+            var downloaded = await client.DownloadBytes(name, token: ct);
+            ct.ThrowIfCancellationRequested();
+            if (downloaded is null || !payload.AsSpan().SequenceEqual(downloaded))
+                throw new IOException("下载校验不符：回读内容与上传内容不一致");
+            steps.Add("下载内容逐字节校验一致");
+        }
+        catch (Exception ex) { transferError = ex; throw; }
+        finally
+        {
+            try { await CleanupFtpProbeAsync(client, ownedDirectory, name); steps.Add("清理完成"); }
+            catch (Exception ex) when (transferError is not null)
+            { steps.Add($"清理未完成：{name}（{ex.Message}）"); }
+        }
+    }
+
+    private static async Task CleanupFtpProbeAsync(AsyncFtpClient client, string directory, string name)
+    {
+        using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var deletion = await client.Execute("DELE " + name, cleanup.Token);
+        // A failed upload may leave no file. Nonrecursive RMD confirms the owned directory is empty.
+        var removal = await client.Execute("RMD " + directory, cleanup.Token);
+        if (!removal.Success)
+            throw new IOException($"测试文件清理未完成：{name}（DELE {deletion.Code}, RMD {removal.Code}）");
+    }
+
+    /// <summary>FTP 登录、列目录；fullRoundTrip 启用上传、实际回读内容校验及清理。</summary>
     public async Task<CsProbeResult> ProbeFtpClientAsync(CsGateway gw, bool fullRoundTrip, CancellationToken ct)
     {
         var port = gw.Port > 0 ? gw.Port : 21;
@@ -29,31 +65,15 @@ public sealed partial class CsConnectivityService
             var token = timeoutCts.Token;
 
             await client.Connect(token);
-            steps.Add("登录成功(21端口可用)");
+            steps.Add($"登录成功({port}端口可用)");
 
             var dir = string.IsNullOrWhiteSpace(gw.RemotePath) ? "/" : gw.RemotePath!.Trim();
+            if (dir.Any(char.IsControl)) throw new ArgumentException("FTP 目录不能包含控制字符。");
             var listing = await client.GetListing(dir, token);
             steps.Add($"列目录{dir}={listing.Length}项");
 
             if (fullRoundTrip)
-            {
-                var prefix = dir == "/" ? "" : dir.TrimEnd('/');
-                var name = $"{prefix}/__cs_probe_{Guid.NewGuid():N}.txt";
-                var payload = Encoding.UTF8.GetBytes($"cs-ftp-probe {Now()}");
-                var up = await client.UploadBytes(payload, name, FtpRemoteExists.Overwrite, true, token: token);
-                if (up == FtpStatus.Success)
-                {
-                    steps.Add("上传成功");
-                    var back = await client.DownloadBytes(name, token: token);
-                    steps.Add(back != null && back.Length == payload.Length ? "下载校验一致" : "下载校验不符");
-                    await client.DeleteFile(name, token);
-                    steps.Add("清理完成");
-                }
-                else
-                {
-                    steps.Add($"上传失败({up})");
-                }
-            }
+                await ProbeFtpRoundTripAsync(client, dir, steps, token);
 
             sw.Stop();
             try { await client.Disconnect(token); } catch { /* ignore */ }

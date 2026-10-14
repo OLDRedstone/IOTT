@@ -30,6 +30,7 @@ internal static class ApiAuthorizationRegressionTests
 
         var reader = Login(auth, users, "reader", ["data_read"]);
         Expect(200, Check<DataReadWriteController>(filter, "ReadTags", reader), "Reader POST read");
+        Expect(200, Check<TelemetryMqttController>(filter, "GetStatus", reader), "Reader MQTT status");
         Expect(200, Check<ProgramTransferController>(filter, "Download", reader), "Reader POST download");
         Expect(403, Check<DataReadWriteController>(filter, "WriteTags", reader), "Reader write");
         Expect(403, Check<ProgramTransferController>(filter, "Upload", reader), "Reader upload");

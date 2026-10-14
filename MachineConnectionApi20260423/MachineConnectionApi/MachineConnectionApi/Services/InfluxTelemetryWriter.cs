@@ -15,6 +15,13 @@ public interface IInfluxTelemetryWriter
         DateTimeOffset batchTime,
         IReadOnlyList<InfluxTelemetryPoint> points,
         CancellationToken ct = default);
+
+    async Task<int> WriteCountAsync(string deviceId, DateTimeOffset batchTime,
+        IReadOnlyList<InfluxTelemetryPoint> points, CancellationToken ct = default)
+    {
+        await WriteBatchAsync(deviceId, batchTime, points, ct);
+        return points.Count;
+    }
 }
 
 public sealed record InfluxTelemetryPoint(
@@ -47,9 +54,15 @@ public sealed class InfluxTelemetryWriter : IInfluxTelemetryWriter, IDisposable
         IReadOnlyList<InfluxTelemetryPoint> points,
         CancellationToken ct = default)
     {
+        await WriteCountAsync(deviceId, batchTime, points, ct);
+    }
+
+    public async Task<int> WriteCountAsync(string deviceId, DateTimeOffset batchTime,
+        IReadOnlyList<InfluxTelemetryPoint> points, CancellationToken ct = default)
+    {
         var opt = _options.CurrentValue;
         if (!opt.Enabled || points.Count == 0)
-            return;
+            return 0;
 
         if (string.IsNullOrWhiteSpace(opt.Token) ||
             string.IsNullOrWhiteSpace(opt.Org) ||
@@ -89,6 +102,7 @@ public sealed class InfluxTelemetryWriter : IInfluxTelemetryWriter, IDisposable
 
         using var lease = _clients.Rent(opt);
         await WriteWithRetryAsync(lease.Client, influxPoints, opt, deviceId, ct);
+        return influxPoints.Count;
     }
 
     private async Task WriteWithRetryAsync(

@@ -1,6 +1,11 @@
+using System.Globalization;
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
+using MachineConnectionApi.Controllers;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using MachineConnectionApi.Models;
 using MachineConnectionApi.Services;
 
@@ -13,9 +18,13 @@ internal static class EvaluationKnowledgeRegressionTests
         using var fixture = new Fixture();
         ScoresVersionsAndSnapshots(fixture);
         SpreadsheetRoundTrip(fixture);
+        BinaryImportAndController(fixture);
+        ExportSummariesAndLargeSnapshot(fixture);
         TaskEvidenceAndDeduplication(fixture);
         MalformedSpreadsheetIsRejected();
         PdfContainsAllPages();
+        PdfTablesWrapAndRepeatHeaders();
+        EvaluationSpreadsheetRegressionTests.RunAll();
     }
 
     private static void ScoresVersionsAndSnapshots(Fixture fixture)
@@ -79,6 +88,110 @@ internal static class EvaluationKnowledgeRegressionTests
         using var batch = new MemoryStream(ExcelBuilder.Build("records", [header, valid, invalid]));
         var partial = fixture.Store.Import(batch);
         Check(partial.Total == 2 && partial.Success == 1 && partial.Failed == 1 && partial.Errors[0].StartsWith("第 3 行"), "partial import result invalid");
+        var serialOne = valid.ToList();
+        serialOne[1] = "excel-date-one";
+        serialOne[7] = 1;
+        var leapDay = valid.ToList();
+        leapDay[7] = 60;
+        var notFinite = valid.ToList();
+        notFinite[7] = "NaN";
+        var badScore = valid.ToList();
+        var scoreColumn = templateRows[0].FindIndex(name => name.StartsWith("评分:", StringComparison.Ordinal));
+        badScore[scoreColumn] = "Infinity";
+        using var dates = new MemoryStream(ExcelBuilder.Build("dates", [header, serialOne, leapDay, notFinite, badScore]));
+        var dateResult = fixture.Store.Import(dates);
+        Check(dateResult is { Total: 4, Success: 1, Failed: 3 }
+            && dateResult.Errors[0].StartsWith("第 3 行") && dateResult.Errors[2].StartsWith("第 5 行"),
+            "invalid Excel dates or non-finite scores must produce per-row feedback");
+        Check(fixture.Store.List().First(row => row.MachineNo == "excel-date-one").TestDate == "1900-01-01", "Excel 1900 date epoch is incorrect");
+    }
+
+    private static void BinaryImportAndController(Fixture fixture)
+    {
+        var controller = new EvaluationKnowledgeController(fixture.Store);
+        using var binary = new MemoryStream(EvaluationBiffFixture.Bytes());
+        var file = new FormFile(binary, 0, binary.Length, "file", "真实二进制.XLS");
+        var response = controller.Import(file) as OkObjectResult;
+        var result = response?.Value as KnowledgeImportResult;
+        Check(result is { Total: 2, Success: 1, Failed: 1 } && result.Errors[0].StartsWith("第 4 行"),
+            "BIFF partial import must keep physical row errors");
+        var imported = fixture.Store.List().First(row => row.MachineNo == "BIFF-001");
+        Check(imported.Scores["i_1"] == 0 && imported.Scores["i_2"] is null && imported.TotalScore is null,
+            "BIFF import fabricated a missing score or discarded zero");
+        Check(imported.TestDate == "2026-09-28" && imported.TestResults["i_1"] == "0"
+            && imported.Remarks["i_1"] == "中文备注，二进制真实结果", "BIFF import lost dates or evidence");
+        using var fake = new MemoryStream(Encoding.UTF8.GetBytes("not an Excel workbook"));
+        Check(controller.Import(new FormFile(fake, 0, fake.Length, "file", "fake.xls")) is BadRequestObjectResult,
+            "renaming arbitrary bytes must not produce a successful XLS import");
+        foreach (var category in new[] { "machine", "machining" })
+        {
+            var template = (FileContentResult)controller.Template(category);
+            using var stream = new MemoryStream(template.FileContents);
+            var rows = EvaluationSpreadsheetReader.Read(stream);
+            Check(rows[1][9] == category, "template category query was ignored");
+        }
+        Check(controller.Template("unknown") is BadRequestObjectResult, "invalid template category accepted");
+    }
+
+    private static void ExportSummariesAndLargeSnapshot(Fixture fixture)
+    {
+        var snapshot = new EvaluationConfig
+        {
+            Indicators =
+            [
+                new EvaluationSection { Id = "section-a", Name = "分类甲", Weight = 40, Children =
+                [
+                    new EvaluationSubcategory { Id = "child-a1", Name = "二级甲一", Weight = 25, Items =
+                    [new EvaluationItem { Id = "zero", Name = "零分项目", Weight = 25 }, new EvaluationItem { Id = "full", Name = "满分项目", Weight = 75 }] },
+                    new EvaluationSubcategory { Id = "child-a2", Name = "二级甲二", Weight = 75, Items =
+                    [new EvaluationItem { Id = "other", Name = "其他项目", Weight = 100 }] },
+                ] },
+                new EvaluationSection { Id = "section-b", Name = "分类乙", Weight = 60, Children =
+                [new EvaluationSubcategory { Id = "child-b", Name = "二级乙", Weight = 100, Items =
+                    [new EvaluationItem { Id = "half", Name = "半分项目", Weight = 100 }] }] },
+            ],
+        };
+        var record = fixture.Store.Create(fixture.Record() with { Snapshot = snapshot,
+            Scores = new() { ["zero"] = 0, ["full"] = 100, ["other"] = 100, ["half"] = 50 } });
+        var summary = SpreadsheetValues(fixture.Store.ExportSpreadsheet(record));
+        Check(record.TotalScore == 67.5 && summary["综合得分"] == "67.5", "weighted total changed");
+        Check(summary["分类得分:section-a:分类甲"] == "93.75" && summary["分类加权贡献:section-a:分类甲"] == "37.5"
+            && summary["二级小计:child-a1:二级甲一"] == "75" && summary["二级分类内贡献:child-a1:二级甲一"] == "18.75"
+            && summary["二级总分贡献:child-a1:二级甲一"] == "7.5", "Excel omitted or miscomputed hierarchical summary");
+        Check(summary["评分:zero:零分项目"] == "0" && summary["评分口径"].Contains("简单平均"), "zero score or scoring basis missing");
+        var pdf = Encoding.ASCII.GetString(fixture.Store.ExportPdf(record));
+        Check(PdfStrings(pdf).Contains("分类得分与总分贡献") && PdfStrings(pdf).Contains("二级小计与加权贡献"),
+            "PDF summary tables missing");
+
+        record.Scores["full"] = null;
+        var incomplete = fixture.Store.Create(record);
+        var incompleteValues = SpreadsheetValues(fixture.Store.ExportSpreadsheet(incomplete));
+        Check(incomplete.TotalScore is null && incompleteValues["分类得分:section-a:分类甲"] == ""
+            && incompleteValues["分类加权贡献:section-a:分类甲"] == "", "unrated summaries must remain blank, not zero");
+        using (var stream = new MemoryStream(fixture.Store.ExportSpreadsheet(incomplete)))
+            Check(fixture.Store.Import(stream) is { Success: 1, Failed: 0 }, "summary columns broke reimport");
+        var zeroWeighted = fixture.Store.Create(record with { CategoryWeights = new() { ["section-a"] = 0, ["section-b"] = 100 } });
+        var zeroWeightedValues = SpreadsheetValues(fixture.Store.ExportSpreadsheet(zeroWeighted));
+        Check(zeroWeighted.TotalScore == 50 && zeroWeightedValues["分类加权贡献:section-a:分类甲"] == "0", "zero-weight contribution is not zero");
+
+        var longDescription = string.Concat(Enumerable.Repeat("中文快照 带空格 ", 1500));
+        snapshot.Indicators[0].Children[0].Items[0] = snapshot.Indicators[0].Children[0].Items[0] with { Desc = longDescription };
+        var large = fixture.Store.Create(record with { Snapshot = snapshot, MachineNo = "large-snapshot" });
+        var largeBytes = fixture.Store.ExportSpreadsheet(large);
+        var largeValues = SpreadsheetValues(largeBytes);
+        Check(largeValues.ContainsKey("指标快照JSON分段:2"), "large snapshots must be split within Excel cell limits");
+        using (var stream = new MemoryStream(largeBytes))
+            Check(fixture.Store.Import(stream) is { Success: 1, Failed: 0 }, "large snapshot no longer roundtrips");
+        var reimported = fixture.Store.List().First(row => row.MachineNo == "large-snapshot" && row.DataSource == "import");
+        Check(reimported.Snapshot.Indicators[0].Children[0].Items[0].Desc == longDescription, "snapshot continuation lost text or whitespace");
+    }
+
+    private static Dictionary<string, string> SpreadsheetValues(byte[] bytes)
+    {
+        using var stream = new MemoryStream(bytes);
+        var rows = EvaluationSpreadsheetReader.Read(stream);
+        return rows[0].Select((header, index) => (header, value: index < rows[1].Count ? rows[1][index] : ""))
+            .ToDictionary(pair => pair.header, pair => pair.value);
     }
 
     private static void TaskEvidenceAndDeduplication(Fixture fixture)
@@ -154,6 +267,53 @@ internal static class EvaluationKnowledgeRegressionTests
             "PDF pagination or Unicode mapping missing");
         Check(text.Contains(Convert.ToHexString(Encoding.BigEndianUnicode.GetBytes("评价报告第 119 行"))), "PDF truncated report");
     }
+
+    private static void PdfTablesWrapAndRepeatHeaders()
+    {
+        var body = string.Concat(Enumerable.Repeat("中文长文本验证跨页不能截断", 500));
+        var table = new EvaluationPdfTable("跨页明细表", ["项目", "证据"],
+            [new[] { "首个项目", body + "最后证据" }, new[] { "末个项目", "保留零分 0 和未评分" }], [1, 3]);
+        var previousCulture = CultureInfo.CurrentCulture;
+        byte[] bytes;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+            bytes = EvaluationPdfBuilder.BuildReport("统一报告标题", ["介绍"], [table], ["结尾保留"]);
+        }
+        finally { CultureInfo.CurrentCulture = previousCulture; }
+        var pdf = Encoding.ASCII.GetString(bytes);
+        var pageCount = int.Parse(Regex.Match(pdf, @"/Count (\d+)").Groups[1].Value, CultureInfo.InvariantCulture);
+        var strings = PdfStrings(pdf);
+        Check(pageCount > 3 && strings.Count(text => text == "统一报告标题") == pageCount,
+            "report title must repeat on every table page");
+        Check(strings.Count(text => text == "跨页明细表") > 1 && strings.Count(text => text == "证据") > 1,
+            "continuation pages need table title and column headers");
+        // All source characters must survive wrapping and page breaks, not merely the last row marker.
+        Check(strings.Sum(text => text.Count(character => character == '中')) == body.Count(character => character == '中')
+            && string.Concat(strings).Contains("最后证据") && strings.Contains("结尾保留") && strings.Contains("末个项目"),
+            "PDF table rows or closing text were truncated");
+        Check(pdf.Contains(" re S") && pdf.Contains("/FontFile2") && pdf.Contains("/ToUnicode"), "PDF table grid or embedded Unicode font missing");
+        var widths = Regex.Matches(Regex.Match(pdf, @"/W \[((?:\d+ \[\d+\] *)+)\]").Groups[1].Value, @"(\d+) \[(\d+)\]")
+            .ToDictionary(match => (char)int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture),
+                match => int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture));
+        Check(widths.Count > 0, "PDF must declare the embedded font's actual character advances");
+        foreach (Match match in Regex.Matches(pdf, @"BT /F1 ([0-9.]+) Tf 1 0 0 1 ([0-9.]+) ([0-9.]+) Tm <([A-F0-9]*)> Tj"))
+        {
+            var size = double.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+            var x = double.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture);
+            var y = double.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture);
+            var text = Encoding.BigEndianUnicode.GetString(Convert.FromHexString(match.Groups[4].Value));
+            Check(x >= 50 && x + text.Sum(character => widths[character]) * size / 1000 <= 545.001 && y is >= 40 and <= 794,
+                "PDF text escaped printable page bounds");
+        }
+        Expect<ArgumentException>(() => EvaluationPdfBuilder.BuildReport("invalid", [],
+            [new EvaluationPdfTable("table", ["one", "two"], [new[] { "missing" }])]));
+        Expect<ArgumentException>(() => EvaluationPdfBuilder.BuildReport("invalid", [],
+            [new EvaluationPdfTable("table", ["one", "two"], [], [double.NaN, 1])]));
+    }
+
+    private static List<string> PdfStrings(string pdf) => Regex.Matches(pdf, @"<([A-F0-9]*)> Tj")
+        .Select(match => Encoding.BigEndianUnicode.GetString(Convert.FromHexString(match.Groups[1].Value))).ToList();
 
     private static void Check(bool condition, string message)
     {

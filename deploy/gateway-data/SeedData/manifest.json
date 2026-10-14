@@ -1,5 +1,5 @@
 {
-  "formatVersion": 1,
+  "formatVersion": 2,
   "createdAtUtc": "2026-09-28T22:24:50.667046+00:00",
   "source": "Running gateway AppContext.BaseDirectory/App_Data and upstream device registry",
   "gatewayDeviceCount": 20,
@@ -15,7 +15,14 @@
     "system-logs.json": 135,
     "system-users.json": 1,
     "verify-task-completions.json": 0,
-    "verify-tasks.json": 5
+    "verify-tasks.json": 5,
+    "evaluation-attachments/0e3929358dc14744aaab30d3f8c566ca.json": 1,
+    "evaluation-attachments/221f7f1c49e547ee92d3e2e1825cfb19.json": 1,
+    "evaluation-attachments/3b4063189c15446d8ecf2edf0ed8fee4.json": 1,
+    "evaluation-attachments/40a1926c539c4c889bb586cba48dd242.json": 1,
+    "evaluation-attachments/6e58dade918849ef83965a9ccb7e0ad2.json": 1,
+    "evaluation-attachments/8f3b949eec774750b0e808b8fa24ec74.json": 1,
+    "evaluation-attachments/b8c3a59373c045a28303c01348729b51.json": 1
   },
   "redactions": {
     "cs-connectivity.json/gatewayPasswords": 1,
@@ -38,6 +45,14 @@
       "kind": "server-root-reset",
       "id": "svc-3f895d04",
       "previous": "F:\\"
+    },
+    {
+      "kind": "evaluation-config-and-attachments-updated",
+      "categories": {
+        "machine": 8,
+        "machining": 3
+      },
+      "attachmentCount": 7
     }
   ],
   "programs": [
@@ -979,8 +994,8 @@
     },
     {
       "path": "App_Data/evaluation-indicators.json",
-      "bytes": 84507,
-      "sha256": "b2c36e79fa1a2f682ba86f0ee1c9661aafdbb68852b991035bfe6754496d68f1"
+      "bytes": 88292,
+      "sha256": "7a0191782812603ac55786a0c194e11a2a37c7f72926b0651bc6466e54b6e9fb"
     },
     {
       "path": "App_Data/evaluation-records.json",
@@ -1036,6 +1051,98 @@
       "path": "program-files/e9f58d1671cd4bfc9649e155ff0ca801.bin",
       "bytes": 102400,
       "sha256": "9e3099daba5d03436850e8e3292e08edde335b1f4b575cc6df6f5b4d2ca3d652"
+    },
+    {
+      "path": "App_Data/evaluation-attachments/0e3929358dc14744aaab30d3f8c566ca.bin.gz",
+      "bytes": 3157,
+      "sha256": "f30850208b63d9ae587d478074aca6dbe8e1c3cc22832d4f9490717e5d21190f",
+      "compression": "gzip",
+      "uncompressedBytes": 1048576,
+      "uncompressedSha256": "44ddedc77217dd81143acda84f39841b7f306446f16f0547e30852ae62388ba5"
+    },
+    {
+      "path": "App_Data/evaluation-attachments/0e3929358dc14744aaab30d3f8c566ca.json",
+      "bytes": 141,
+      "sha256": "80dc8fd6081f7a968cc5b8ee2c9e575892440cddcbe45ab7deef822aac61688b"
+    },
+    {
+      "path": "App_Data/evaluation-attachments/221f7f1c49e547ee92d3e2e1825cfb19.bin.gz",
+      "bytes": 30802,
+      "sha256": "d3936a8fa1f342989fb4c628e2cd9b0375e37bcad9ae35e4515e2f15ebe6b1a6",
+      "compression": "gzip",
+      "uncompressedBytes": 10485760,
+      "uncompressedSha256": "cbefac1e85850bfa59bdc02404ceb2262755578b49192045ba647dfba4e1d4e9"
+    },
+    {
+      "path": "App_Data/evaluation-attachments/221f7f1c49e547ee92d3e2e1825cfb19.json",
+      "bytes": 144,
+      "sha256": "97bef3d0dc3ee4c1bf7634801d617c1c3ea21d0941693369b1a84c815c982332"
+    },
+    {
+      "path": "App_Data/evaluation-attachments/3b4063189c15446d8ecf2edf0ed8fee4.bin.gz",
+      "bytes": 394,
+      "sha256": "1ad6c5dca6684c1248eadc9f12b9259ef55964be159fe3e61c1470616bdac449",
+      "compression": "gzip",
+      "uncompressedBytes": 104858,
+      "uncompressedSha256": "b48558f6a1dc1a34c767c49429a37549df20be74b0fe601926a15d1ca2ec8ec1"
+    },
+    {
+      "path": "App_Data/evaluation-attachments/3b4063189c15446d8ecf2edf0ed8fee4.json",
+      "bytes": 141,
+      "sha256": "8433ac715eea4f49b62bc2e3d770f44608f5d3eef72741dd9d42d32a5f277abd"
+    },
+    {
+      "path": "App_Data/evaluation-attachments/40a1926c539c4c889bb586cba48dd242.bin.gz",
+      "bytes": 1721,
+      "sha256": "3eb98c1422fd48607928ff6bfb14d740508523bcd0dc115e45754f87d7b19d17",
+      "compression": "gzip",
+      "uncompressedBytes": 21320,
+      "uncompressedSha256": "4be28e6846165cc77a3acd1eb5dd3493bb1a8b74a8f25d78ac2fa60ed129aa1a"
+    },
+    {
+      "path": "App_Data/evaluation-attachments/40a1926c539c4c889bb586cba48dd242.json",
+      "bytes": 112,
+      "sha256": "4d74636013c327ebf65426260188bcd435efd7576d1c7c8d00f046e0d722c7b0"
+    },
+    {
+      "path": "App_Data/evaluation-attachments/6e58dade918849ef83965a9ccb7e0ad2.bin.gz",
+      "bytes": 1110,
+      "sha256": "59d04ab3dede0b0bef500b3f1a1d93d37ec3d6d02d5244622f142fec50fe9bfa",
+      "compression": "gzip",
+      "uncompressedBytes": 5226,
+      "uncompressedSha256": "edaa1b4804bce2ed29edb61e8390246997fdc48adaeff1f89b097f3e2130c411"
+    },
+    {
+      "path": "App_Data/evaluation-attachments/6e58dade918849ef83965a9ccb7e0ad2.json",
+      "bytes": 108,
+      "sha256": "729dee581e24aa0cb453816cc57cf80d2ad6c3312ef97dbb874b1aaa4ce06c80"
+    },
+    {
+      "path": "App_Data/evaluation-attachments/8f3b949eec774750b0e808b8fa24ec74.bin.gz",
+      "bytes": 614457,
+      "sha256": "e1c6e854f8a0ef9293bd2a10f5686c8e2da2d1f07ac2c81fd0df216cbc09a630",
+      "compression": "gzip",
+      "uncompressedBytes": 209715200,
+      "uncompressedSha256": "b8c4129c8248bbf910f50cc15c86e06e124567b373c0e56091b582acd8cab1f4"
+    },
+    {
+      "path": "App_Data/evaluation-attachments/8f3b949eec774750b0e808b8fa24ec74.json",
+      "bytes": 147,
+      "sha256": "932b932c6616787c4d3ac4bb9b49a64020514ce093d1192b8cc8fe141b3c80ed"
+    },
+    {
+      "path": "App_Data/evaluation-attachments/b8c3a59373c045a28303c01348729b51.bin.gz",
+      "bytes": 61514,
+      "sha256": "a2229a19fdd2f465ec2678784e46491f61ec34e7439242d8440b9981faabc100",
+      "compression": "gzip",
+      "uncompressedBytes": 20971520,
+      "uncompressedSha256": "f6bc66ba31307c89eba22def5c2c36c1e74324c5e9cb709e1686336068179bc7"
+    },
+    {
+      "path": "App_Data/evaluation-attachments/b8c3a59373c045a28303c01348729b51.json",
+      "bytes": 144,
+      "sha256": "59ac69a87843a09d06ba973fc18a8688fa97dd6a90879fd7b2429e5afad65078"
     }
-  ]
+  ],
+  "evaluationUpdatedAtUtc": "2026-10-12T10:12:31.651781+00:00"
 }

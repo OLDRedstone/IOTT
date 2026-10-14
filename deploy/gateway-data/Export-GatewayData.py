@@ -2,6 +2,7 @@
 import argparse
 import collections
 import datetime
+import gzip
 import hashlib
 import json
 import pathlib
@@ -50,6 +51,33 @@ def write_json(path, value):
         stream.write('\n')
 
 
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def export_attachment(source, destination):
+    if source.stat().st_size > 200 * 1024 * 1024:
+        raise ValueError("Evaluation attachment exceeds 200 MiB: " + source.name)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256()
+    size = 0
+    with source.open("rb") as original, destination.open("xb") as output:
+        with gzip.GzipFile(filename="", mode="wb", fileobj=output, mtime=0) as compressed:
+            for chunk in iter(lambda: original.read(1024 * 1024), b""):
+                size += len(chunk)
+                if size > 200 * 1024 * 1024:
+                    raise ValueError("Evaluation attachment grew beyond 200 MiB: " + source.name)
+                digest.update(chunk)
+                compressed.write(chunk)
+    if destination.stat().st_size >= 100 * 1024 * 1024:
+        raise ValueError("Compressed evaluation attachment exceeds GitHub limit: " + source.name)
+    return {"compression": "gzip", "uncompressedBytes": size, "uncompressedSha256": digest.hexdigest()}
+
+
 def query_mysql(arguments, query):
     result = subprocess.run([str(arguments.mysql_bin / "mysql.exe"),
         "--defaults-extra-file=" + str(arguments.client_config.resolve()), "--batch", "--raw",
@@ -71,6 +99,7 @@ def main():
     snapshot = arguments.output / "App_Data"
     source_files = sorted(arguments.app_data.rglob("*"))
     documents = {}
+    compressed_files = {}
     for source in source_files:
         if not source.is_file():
             continue
@@ -80,7 +109,11 @@ def main():
         elif source.suffix.lower() != ".tmp":
             destination = snapshot / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source, destination)
+            if relative.parts[0] == "evaluation-attachments" and source.suffix.lower() == ".bin":
+                destination = destination.with_suffix(".bin.gz")
+                compressed_files[destination.relative_to(arguments.output).as_posix()] = export_attachment(source, destination)
+            else:
+                shutil.copyfile(source, destination)
     with urllib.request.urlopen(arguments.host_url.rstrip("/") + "/api/Devices", timeout=30) as response:
         upstream = clean(json.load(response), "upstream-devices")
     devices = {row["id"]: row for row in upstream}
@@ -120,15 +153,16 @@ def main():
     for name, document in documents.items():
         write_json(snapshot / name, document)
     programs = export_programs(arguments)
-    manifest = {"formatVersion": 1, "createdAtUtc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    manifest = {"formatVersion": 2, "createdAtUtc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "source": "Running gateway AppContext.BaseDirectory/App_Data and upstream device registry",
         "gatewayDeviceCount": len(local_devices), "upstreamDeviceCount": len(upstream), "mergedDeviceCount": len(devices),
         "recordCounts": {name: len(value) if isinstance(value, list) else 1 for name, value in documents.items()},
         "redactions": dict(REDACTIONS), "changes": CHANGES, "programs": programs, "files": []}
     for path in sorted(arguments.output.rglob("*")):
         if path.is_file():
-            manifest["files"].append({"path": path.relative_to(arguments.output).as_posix(),
-                "bytes": path.stat().st_size, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+            relative = path.relative_to(arguments.output).as_posix()
+            manifest["files"].append({"path": relative, "bytes": path.stat().st_size,
+                "sha256": sha256_file(path), **compressed_files.get(relative, {})})
     write_json(arguments.output / "manifest.json", manifest)
     print(json.dumps({"files": len(manifest["files"]), "records": manifest["recordCounts"],
         "programReferences": len(programs), "programFiles": sum(item["available"] for item in programs)}))

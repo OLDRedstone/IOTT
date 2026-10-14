@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <Compile Include="../../../Shared/Messaging/*.cs" Link="Messaging/Shared/%(Filename)%(Extension)" />
     <ProjectReference Include="..\IndustrialIoT.Domain\IndustrialIoT.Domain.csproj" />
     <ProjectReference Include="..\IndustrialIoT.Application\IndustrialIoT.Application.csproj" />
     <ProjectReference Include="..\IndustrialIoT.Protocols\IndustrialIoT.Protocols.csproj" />

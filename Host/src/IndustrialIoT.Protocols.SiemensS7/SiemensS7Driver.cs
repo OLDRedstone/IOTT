@@ -28,8 +28,10 @@ public sealed class SiemensS7Driver(ILogger<SiemensS7Driver> logger) : IProtocol
         {
             if (_state == ConnectionState.Connected) return new() { Success = true };
             SetState(ConnectionState.Connecting);
+            var options = SiemensS7ConnectionOptions.Resolve(config.ExtendedProperties);
             var client = new S7TcpClient();
-            await client.ConnectAsync(config.Host, config.Port, GetPlcType(config), GetByte(config, "Rack", 0), GetByte(config, "Slot", GetDefaultSlot(config)), config.ConnectTimeout, config.ReadTimeout, ct);
+            await client.ConnectAsync(config.Host, config.Port, Enum.Parse<SiemensS7PlcType>(options.PlcType),
+                options.Rack, options.Slot, config.ConnectTimeout, config.ReadTimeout, ct);
             _stringLength = GetUShort(config, "StringLength", 16);
             _client = client;
             SetState(ConnectionState.Connected);
@@ -163,31 +165,6 @@ public sealed class SiemensS7Driver(ILogger<SiemensS7Driver> logger) : IProtocol
         _state = state;
         StateChanged?.Invoke(this, new() { OldState = old, NewState = state, Reason = reason });
     }
-
-    private static SiemensS7PlcType GetPlcType(DeviceConnectionConfig config)
-    {
-        var raw = Get(config, "PlcType", "CpuType", "Series", "Model") ?? "S1200";
-        var normalized = raw.Replace("-", string.Empty, StringComparison.OrdinalIgnoreCase);
-        return Enum.TryParse<SiemensS7PlcType>(normalized, true, out var plcType) ? plcType : SiemensS7PlcType.S1200;
-    }
-
-    private static byte GetDefaultSlot(DeviceConnectionConfig config) => GetPlcType(config) switch
-    {
-        SiemensS7PlcType.S300 => 2,
-        SiemensS7PlcType.S400 => 3,
-        _ => 0,
-    };
-
-    private static string? Get(DeviceConnectionConfig config, params string[] keys)
-    {
-        foreach (var key in keys)
-            if (config.ExtendedProperties.TryGetValue(key, out var value))
-                return value;
-        return null;
-    }
-
-    private static byte GetByte(DeviceConnectionConfig config, string key, byte fallback) =>
-        config.ExtendedProperties.TryGetValue(key, out var raw) && byte.TryParse(raw, out var value) ? value : fallback;
 
     private static ushort GetUShort(DeviceConnectionConfig config, string key, ushort fallback) =>
         config.ExtendedProperties.TryGetValue(key, out var raw) && ushort.TryParse(raw, out var value) ? value : fallback;

@@ -42,7 +42,7 @@
 					<el-option label="显式选择的不同设备" value="devices" /><el-option label="独立连接（当前适配器未支持，不评分）" value="connections" />
 						<el-option v-if="rule.test.concurrencyMode === 'sessions'" label="独立会话（历史配置，当前不评分）" value="sessions" />
 				</el-select></el-form-item>
-				<el-form-item label="并发上限"><el-input-number v-model="rule.test.maxConnections" :min="1" :max="64" :precision="0" /></el-form-item>
+				<el-form-item label="并发上限"><el-input-number v-model="rule.test.maxConnections" :min="1" :max="100" :precision="0" /></el-form-item>
 				<el-form-item label="停止前连续失败次数"><el-input-number v-model="rule.test.failureLimit" :min="1" :max="100" :precision="0" /></el-form-item>
 			</div>
 			<div class="rule-grid">

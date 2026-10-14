@@ -1,6 +1,7 @@
 <template>
 	<div class="collection-manage-view">
 		<h2 class="page-title">采集任务管理</h2>
+		<div style="margin-bottom: 16px"><MqttForwardingStatus /></div>
 
 		<!-- 设备与采集配置 -->
 		<el-card class="profiles-card">
@@ -264,6 +265,7 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { Refresh } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import MqttForwardingStatus from "@/components/MqttForwardingStatus.vue";
 import {
 	machineConnectionDevicesApi,
 	type DeviceDto,

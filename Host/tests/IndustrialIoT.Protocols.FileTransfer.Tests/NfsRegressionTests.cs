@@ -10,6 +10,7 @@ internal static class NfsRegressionTests
 
     public static async Task RunAll()
     {
+        await NfsVerificationRegressionTests.RunAll();
         await Regression.Run("NFS new directory upload, browse, download and resume", RoundTrip);
         foreach (var path in new[] { "../outside.nc", "nested/../../outside.nc" })
             await Regression.Run($"NFS rejects traversal {path}", () => RejectPath(path));

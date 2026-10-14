@@ -128,6 +128,7 @@
 					<el-select
 						v-model="currentDevice.protocol"
 						placeholder="请选择协议类型"
+						@change="handleProtocolChange"
 					>
 						<el-option label="FTP" value="FTP" />
 						<el-option label="SMB" value="SMB" />
@@ -154,6 +155,10 @@
 						v-model="currentDevice.devicePath"
 						placeholder="请输入设备程序存储路径"
 					/>
+				</el-form-item>
+				<el-form-item v-if="currentDevice.protocol === 'NFS'" label="NFS 挂载点" prop="mountPoint" required>
+					<el-input v-model="currentDevice.mountPoint" placeholder="采集服务主机上已挂载的 NFS 路径" />
+					<div>填写采集服务所在主机的实际 NFS 挂载路径。</div>
 				</el-form-item>
 				<el-form-item
 					v-if="currentDevice.protocol === 'SMB'"
@@ -276,6 +281,7 @@ interface Device {
 	username?: string;
 	password?: string;
 	devicePath?: string;
+	mountPoint?: string;
 	shareName?: string; // SMB 必填共享名
 	ftpsMode?: string; // FTP 加密：None/Explicit/Implicit（驱动读 EncryptionMode）
 	status: string;
@@ -311,6 +317,7 @@ function mapToDevice(d: DeviceDto): Device {
 		username: d.username ?? "",
 		password: "",
 		devicePath: d.extendedProperties?.devicePath ?? "",
+		mountPoint: d.extendedProperties?.MountPoint ?? "",
 		shareName: d.extendedProperties?.ShareName ?? "",
 		ftpsMode: d.extendedProperties?.EncryptionMode ?? "None",
 		status: d.status,
@@ -352,6 +359,7 @@ const currentDevice = reactive<Device>({
 	username: "",
 	password: "",
 	devicePath: "",
+	mountPoint: "",
 	shareName: "",
 	ftpsMode: "None",
 	status: "离线",
@@ -405,6 +413,7 @@ const openAddDeviceDialog = () => {
 		username: "",
 		password: "",
 		devicePath: "",
+		mountPoint: "",
 		shareName: "",
 		ftpsMode: "None",
 		status: "离线",
@@ -419,13 +428,20 @@ const openEditDeviceDialog = (device: Device) => {
 	deviceDialogVisible.value = true;
 };
 
+function handleProtocolChange(protocol: string) {
+	const defaults: Record<string, number> = { FTP: 21, SMB: 445, NFS: 2049 };
+	if (defaults[protocol] && (!currentDevice.port || Object.values(defaults).includes(currentDevice.port)))
+		currentDevice.port = defaults[protocol];
+}
+
 // 组装 extendedProperties（按协议补必填项）
 function buildExt(d: Device): Record<string, string> {
 	const ext: Record<string, string> = { ...d.extendedProperties };
-	for (const key of ["deviceCode", "devicePath", "ShareName", "EncryptionMode",
+	for (const key of ["deviceCode", "devicePath", "MountPoint", "ShareName", "EncryptionMode",
 		"PortName", "BaudRate", "DataBits", "Parity", "StopBits"]) delete ext[key];
 	if (d.deviceCode) ext.deviceCode = d.deviceCode;
 	if (d.devicePath) ext.devicePath = d.devicePath;
+	if (d.protocol === "NFS" && d.mountPoint?.trim()) ext.MountPoint = d.mountPoint.trim();
 	if (d.protocol === "SMB" && d.shareName) ext.ShareName = d.shareName;
 	if (d.protocol === "FTP" && d.ftpsMode && d.ftpsMode !== "None")
 		ext.EncryptionMode = d.ftpsMode;
@@ -450,6 +466,10 @@ function validateDevice(): boolean {
 	}
 	if (currentDevice.protocol === "SMB" && !currentDevice.shareName) {
 		ElMessage.warning("SMB 协议必须填写共享名（ShareName）");
+		return false;
+	}
+	if (currentDevice.protocol === "NFS" && !currentDevice.mountPoint?.trim()) {
+		ElMessage.warning("NFS 协议必须填写采集服务主机的挂载点（MountPoint）");
 		return false;
 	}
 	if (currentDevice.protocol === "Serial" && !currentDevice.serialSettings.PortName?.trim()) {
@@ -548,17 +568,20 @@ const testConnection = async () => {
 		if (saved.upstreamSynced === false) throw new Error(saved.upstreamError ?? "设备参数尚未同步到采集服务");
 		const r = await machineConnectionDevicesApi.testConnection(currentDevice.id);
 		const target = currentDevice.protocol === "Serial"
-			? currentDevice.serialSettings.PortName : `${currentDevice.ip}:${currentDevice.port}`;
+			? currentDevice.serialSettings.PortName : currentDevice.protocol === "NFS"
+				? currentDevice.mountPoint : `${currentDevice.ip}:${currentDevice.port}`;
 		testResult.value = {
 			success: r.success,
 			message: r.success
 				? currentDevice.protocol === "Serial"
 					? `串口 ${target} 已打开；文件传输兼容性需实际传输验证`
-					: (r.errorMessage ?? `成功连接到 ${target}`)
+					: currentDevice.protocol === "NFS"
+						? `挂载目录 ${target} 可访问；NFS 协议及文件完整性需通过文件传输验证`
+						: (r.errorMessage ?? `成功连接到 ${target}`)
 				: (r.errorMessage ?? `无法连接到 ${target}`),
 			details: {
 				address: target,
-				port: currentDevice.protocol === "Serial" ? "不适用" : currentDevice.port,
+				port: ["Serial", "NFS"].includes(currentDevice.protocol) ? "不适用" : currentDevice.port,
 				protocol: currentDevice.protocol,
 				ftpMode: undefined,
 				responseTime: r.latency ?? `${Date.now() - startTime}`,

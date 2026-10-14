@@ -17,7 +17,8 @@ internal static class DatacollectionSaveRegressionTests
     {
         var interceptor = new FailingConnectionInterceptor();
         var options = new DbContextOptionsBuilder<MCConfigurationDbContext>()
-            .UseSqlServer("Server=unused.invalid;Database=point-save-fixture;Integrated Security=True;")
+            .UseMySql("Server=unused.invalid;Database=point-save-fixture;User ID=fixture;",
+                new MySqlServerVersion(new Version(8, 4, 0)))
             .AddInterceptors(interceptor)
             .Options;
         await using var database = new SaveTrackingContext(options);

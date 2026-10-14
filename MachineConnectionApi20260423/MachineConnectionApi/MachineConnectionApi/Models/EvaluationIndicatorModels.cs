@@ -69,7 +69,7 @@ public sealed record EvaluationTestSettings
 {
     public double DurationMinutes { get; init; } = 30;
     public double SampleIntervalSeconds { get; init; } = 5;
-    public int MaxConnections { get; init; } = 4;
+    public int MaxConnections { get; init; } = 100;
     public int FailureLimit { get; init; } = 3;
     public string ConcurrencyMode { get; init; } = "devices";
     public string ReadAddress { get; init; } = "";

@@ -9,7 +9,7 @@ using MachineConnectionApi.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 
-internal static class EvaluationPipelineRegressionTests
+internal static partial class EvaluationPipelineRegressionTests
 {
     private static EvaluationConfig ChangeProtocol(EvaluationConfig config, string name, string? metricId) => config with
     {
@@ -17,7 +17,7 @@ internal static class EvaluationPipelineRegressionTests
         {
             Children = section.Children.Select(child => child with
             {
-                Items = child.Items.Select(item => item.Id == "i_18" ? item with { Name = name, MetricId = metricId } : item).ToList(),
+                Items = child.Items.Select(item => item.Id == "i_18" ? item with { Name = name, MetricId = metricId, Automation = metricId is null ? null : item.Automation } : item).ToList(),
             }).ToList(),
         }).ToList(),
     };
@@ -34,7 +34,7 @@ internal static class EvaluationPipelineRegressionTests
 
     private sealed class EmptyMetricStore : IMetricStore
     {
-        public List<MetricDto> ReadAll() => [];
+        public List<MetricDto> ReadAll() => throw new InvalidOperationException("Hidden legacy thresholds must never be consulted");
         public void WriteAll(IEnumerable<MetricDto> items) => throw new InvalidOperationException("Unexpected metric write");
         public TResult Update<TResult>(Func<List<MetricDto>, TResult> update) => throw new InvalidOperationException("Unexpected metric update");
     }
@@ -58,6 +58,21 @@ internal static class EvaluationPipelineRegressionTests
 
     public static async Task RunAll()
     {
+        await ManagedSnapshotsAndRemovedBindings();
+        await AutomationRulesAndEvidence();
+        await TransferCoverageRoundTrips();
+        await StabilityAndProgress();
+        await ExplicitDeviceConcurrency();
+        await HundredConcurrentApplicationReads();
+        await DirectRunAndConnectionModeContracts();
+        await FileMeasurements();
+        await HttpMeasurementContract();
+        await AttachmentAndWriteSafety();
+        await ConfiguredRunPersistsAndImports();
+    }
+
+    private static async Task ManagedSnapshotsAndRemovedBindings()
+    {
         var fileName = $"evaluation-pipeline-test-{Guid.NewGuid():N}.json";
         var path = Path.Combine(AppContext.BaseDirectory, "App_Data", fileName);
         try
@@ -67,7 +82,7 @@ internal static class EvaluationPipelineRegressionTests
             using var handler = new DeviceHandler();
             using var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://evaluation-fixture.invalid/") };
             var service = new VerifyAutomationService(new ClientFactory(httpClient), DispatchProxy.Create<ICsConnectivityService, RejectCsProxy>(),
-                new EmptyMetricStore(), new ConfigurationBuilder().Build(), NullLogger<VerifyAutomationService>.Instance, store);
+                new EmptyMetricStore(), new ConfigurationBuilder().Build(), NullLogger<VerifyAutomationService>.Instance, store, new FakeMeasurements());
             var request = new VerifyRunRequest { DeviceId = "fixture-machine", TaskName = "隔离评价测试", EvaluationCategory = "machine", MetricIds = ["industrial-protocol"] };
             var response = await service.RunAsync(request, CancellationToken.None);
             Assert(response.Metrics.Count == 1 && response.Metrics[0].Name == "新工控协议评价名称", "Task ignored the managed indicator name");

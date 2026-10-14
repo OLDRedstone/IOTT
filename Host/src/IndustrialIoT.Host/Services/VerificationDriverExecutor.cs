@@ -3,6 +3,7 @@ namespace IndustrialIoT.Host.Services;
 using IndustrialIoT.Domain.Entities;
 using IndustrialIoT.Domain.Enums;
 using IndustrialIoT.Domain.Interfaces;
+using IndustrialIoT.Domain.ValueObjects;
 using IndustrialIoT.Protocols.Abstractions;
 using IndustrialIoT.Protocols.Registration;
 using Microsoft.Extensions.DependencyInjection;
@@ -51,6 +52,8 @@ public sealed class VerificationDriverExecutor(
                 Revision = revision, Protocol = protocol.ToString(), Simulated = protocol == ProtocolType.Simulator,
             };
             if (evidence.Simulated) return Failure(422, "simulated-driver", "Simulated data is not verification evidence.");
+            if (protocol == ProtocolType.NFS && operation == "directory-read")
+                return Failure(422, "nfs-directory-cache", "NFS 目录可能来自客户端缓存；请使用文件上传及无缓存回读验证通讯。");
             if (!protocolAllowed(protocol)) return Failure(422, "unsupported", "Protocol has no verified read operation for this request.");
 
             driver = factory.Create(protocol, target.Brand, target.Model);
@@ -64,6 +67,7 @@ public sealed class VerificationDriverExecutor(
             var config = transfer && source.ConnectionConfig.Transfer is { } inline
                 ? VerificationConfiguration.TransferConfig(inline)
                 : VerificationConfiguration.Clone(target.ConnectionConfig);
+            config = SiemensS7ConnectionOptions.ForConnection(protocol, target.Model, config);
             var connected = await driver.ConnectAsync(config, ct);
             if (!connected.Success)
                 return Failure(502, "initialization-failed", "Verification driver initialization failed; no read was attempted.");
