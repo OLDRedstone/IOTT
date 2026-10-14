@@ -23,6 +23,7 @@ export function useTaskWorkbench() {
   const loading = ref(false);
   const saving = ref(false);
   const executingIds = ref(new Set<string>());
+  const cancellingIds = ref(new Set<string>());
   const selectedTaskIds = ref<string[]>([]);
   const maxParallelTasks = 7;
   const runningTaskCount = computed(() => new Set([
@@ -288,6 +289,19 @@ export function useTaskWorkbench() {
       }
     }
   }
+  async function cancelTask(task: VerifyTaskDto) {
+    if (cancellingIds.value.has(task.id)) return;
+    try {
+      await ElMessageBox.confirm(`确定终止正在执行的验证任务“${task.name}”吗？已完成的指标留痕保留，运行中的指标记为“已终止”，不会重新测试设备。`, '终止验证任务', { type: 'warning', confirmButtonText: '终止', cancelButtonText: '取消' });
+    } catch (error) { if (error !== 'cancel' && error !== 'close') reportError(error, '终止验证任务失败'); return; }
+    cancellingIds.value.add(task.id);
+    try {
+      await machineConnectionVerifyApi.cancelTask(task.id);
+      ElMessage.success(`“${task.name}”已请求终止，测量循环将在当前采样/传输结束后退出`);
+      await refreshTasks();
+    } catch (error) { reportError(error, '终止验证任务失败'); }
+    finally { cancellingIds.value.delete(task.id); }
+  }
   async function deleteTask(task: VerifyTaskDto) {
     try {
       await ElMessageBox.confirm(`确定删除任务“${task.name}”吗？`, '删除任务', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' });
@@ -315,8 +329,8 @@ export function useTaskWorkbench() {
     if (!canImport(task)) return void ElMessage.warning('该任务旧结果未保存评价指标和机床快照，请重新执行后导入');
     void router.push({ path: '/verify/knowledge', query: { taskId: task.id } });
   }
-  return { tasks, machines, metrics, loading, saving, executingIds, selectedTaskIds, runningTaskCount, maxParallelTasks,
+  return { tasks, machines, metrics, loading, saving, executingIds, cancellingIds, selectedTaskIds, runningTaskCount, maxParallelTasks,
     isTaskRunning, onSelectionChange, executeSelectedTasks, exportingId, editorVisible, resultVisible,
     progressError, lastPolledAt, refreshTasks, startPolling, stopPolling,
-    draft, selectedTask, expandedRows, machineFor, metricsFor, selectCategory, loadPage, addTask, editTask, saveTask, executeTask, deleteTask, viewResult, exportTask, canImport, importKnowledge };
+    draft, selectedTask, expandedRows, machineFor, metricsFor, selectCategory, loadPage, addTask, editTask, saveTask, executeTask, cancelTask, deleteTask, viewResult, exportTask, canImport, importKnowledge };
 }

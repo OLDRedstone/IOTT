@@ -154,6 +154,11 @@ export const machineConnectionVerifyApi = {
         return (await client.post<VerifyTaskRunResult[]>("/api/verify/tasks/start-batch", taskIds, { timeout: 30_000 })).data;
     },
 
+    /** 请求终止一个正在执行的验证任务；由服务端取消其测量循环并留痕为“已终止”。 */
+    async cancelTask(id: string): Promise<void> {
+        await client.post(`/api/verify/tasks/${enc(id)}/cancel`, undefined, { timeout: 30_000 });
+    },
+
     /** 导出最近一次已结束运行的实测、评分、配置快照及证据。 */
     async exportTaskResult(id: string): Promise<{ blob: Blob; fileName: string }> {
         const res = await client.get(`/api/verify/tasks/${enc(id)}/export`, {
