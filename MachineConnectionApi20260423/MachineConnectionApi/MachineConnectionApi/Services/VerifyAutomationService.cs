@@ -238,10 +238,13 @@ public sealed partial class VerifyAutomationService : IVerifyAutomationService
         { MarkUnrated(metric, $"测量单位 {sourceUnit} 无法换算至 {rule.Unit}"); return; }
         metric.Measurement = converted;
         metric.Unit = rule.Unit;
-        metric.Value = $"{converted.ToString("0.####", CultureInfo.InvariantCulture)} {rule.Unit}";
+        metric.Value = $"{FormatMeasurement(converted, rule.Unit)} {rule.Unit}";
         metric.MeasurementSource = "current-run";
         metric.ScoreReason = reason;
     }
+
+    private static string FormatMeasurement(double value, string unit) =>
+        value.ToString(unit == "count" ? "0" : "0.00", CultureInfo.InvariantCulture);
 
     private static void MarkUnrated(VerifyMetricResult metric, string reason)
     {

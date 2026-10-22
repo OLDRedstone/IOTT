@@ -228,6 +228,8 @@ public sealed class VerifyTasksController : ControllerBase
 
         string Number(double? value) => value.HasValue && double.IsFinite(value.Value)
             ? value.Value.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture) : "待评分";
+        string Measured(double? value, string? unit) => value.HasValue && double.IsFinite(value.Value)
+            ? value.Value.ToString(unit == "count" ? "0" : "0.00", System.Globalization.CultureInfo.InvariantCulture) : "无可靠实测";
         var intro = new[]
         {
             $"任务名称：{run.TaskName}　运行编号：{run.RunId}",
@@ -245,7 +247,7 @@ public sealed class VerifyTasksController : ControllerBase
         var summaries = run.Metrics.Select(metric => (IReadOnlyList<string>)new[]
         {
             $"{metric.Code} {metric.Name}",
-            metric.Measurement.HasValue ? $"{Number(metric.Measurement)} {metric.Unit}" : metric.Value.Length > 0 ? $"{metric.Value}（无结构化实测值）" : "无可靠实测",
+            metric.Measurement.HasValue ? $"{Measured(metric.Measurement, metric.Unit)} {metric.Unit}" : metric.Value.Length > 0 ? $"{metric.Value}（无结构化实测值）" : "无可靠实测",
             metric.ExecutionStatus == "pending" && run.CompletedAt.Length > 0 ? "历史未记录" : metric.ExecutionStatus,
             string.IsNullOrWhiteSpace(metric.Result) ? metric.Status : metric.Result,
             Number(metric.Score),
