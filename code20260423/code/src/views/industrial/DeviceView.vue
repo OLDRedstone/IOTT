@@ -152,6 +152,10 @@
                                 <el-button type="success" link size="small" @click="runCollection(device.id)">
                                     开始采集
                                 </el-button>
+                                <el-button type="success" link size="small" :loading="!!pipelineBusy[device.id]"
+                                    @click="togglePipeline(device.id)">
+                                    {{ pipelineTaskIds[device.id] ? "停止管线(MQTT)" : "启动管线(MQTT)" }}
+                                </el-button>
                                 <el-button type="warning" link size="small" @click="stopCollection(device.id)">
                                     停止采集
                                 </el-button>
@@ -748,6 +752,10 @@
                 <el-table-column prop="time" label="采集时间" width="180" />
             </el-table>
             <template #footer>
+                                <el-tag v-if="pipelineTaskIds[collectionDeviceId]" type="success" style="margin-right: 8px">采集管线运行中</el-tag>
+                <el-button type="success" :loading="!!pipelineBusy[collectionDeviceId]" @click="togglePipeline(collectionDeviceId)">
+                    {{ pipelineTaskIds[collectionDeviceId] ? "停止采集管线(MQTT)" : "启动采集管线(MQTT)" }}
+                </el-button>
                 <el-button @click="collectionDialogVisible = false">关闭</el-button>
                 <el-button type="warning" @click="stopCollection(collectionDeviceId)">停止当前设备采集</el-button>
                 <el-button type="primary" @click="openCollectionHistoryDialog(collectionDeviceId)">历史采集记录</el-button>
@@ -939,7 +947,13 @@ import {
     machineConnectionPointsApi,
     type AddressNode,
 } from "@/api/machineConnectionPoints";
-import { datacollectionApi } from "@/api/datacollection";
+import { datacollectionApi, type DatacollectionRow } from "@/api/datacollection";
+import {
+    machineConnectionCollectionApi,
+    type CollectionDataType,
+    type CollectionGroupConfig,
+    type CollectionTaskStatus,
+} from "@/api/machineConnectionCollection";
 import {
     telemetryInfluxApi,
     type InfluxTelemetryHistoryItem,
@@ -1323,6 +1337,8 @@ async function loadDevices() {
 
 onMounted(() => {
     void loadDevices();
+    void refreshPipelineStatus();
+    pipelinePollTimer = window.setInterval(() => void refreshPipelineStatus(), 5000);
 });
 
 // 分页数据
@@ -1518,6 +1534,10 @@ const collectionUploadErrors = ref<Record<string, string>>({});
 const collectionBatchResults = ref<Record<string, TelemetryBatchResult>>({});
 const collectionLoading = ref(false);
 const collectionTimerIdsByDevice = ref<Record<string, number[]>>({});
+const pipelineTaskIds = ref<Record<string, string>>({});
+const pipelineBusy = ref<Record<string, boolean>>({});
+const pipelineStatus = ref<Record<string, CollectionTaskStatus>>({});
+let pipelinePollTimer: number | undefined;
 const collectionRunsByDevice = new Map<string, { starting: boolean }>();
 const collectingDeviceIds = ref<string[]>([]);
 const collectionHistoryDialogVisible = ref(false);
@@ -2604,7 +2624,10 @@ function normalizeRemotePath(path: string): string {
 
 function getDeviceTransferRoot(ui: DeviceUi | undefined): string | undefined {
     if (!ui) return undefined;
-    if (getDeviceTransferProtocol(ui) === "NCLinkApi") return undefined;
+    const protocol = getDeviceTransferProtocol(ui);
+    // NCLinkApi 与 FOCAS(程序传输) 的根由后端返回（FOCAS 为 //CNC_MEM 与 /Programs），不强制 "/"：
+    // 传 "/" 会让 FOCAS 后端返回 AddressSpace 根（/CNC 点位 + /Programs），从而把点位当成文件。
+    if (protocol === "NCLinkApi" || protocol === "FOCAS") return undefined;
     return "/";
 }
 
@@ -2613,10 +2636,15 @@ function getDeviceTransferProtocol(ui: DeviceUi | undefined): string {
     return ui?.transferProtocol || ui?.protocol || "";
 }
 
-/** 原生 OPC UA / FOCAS 按 AddressSpace 返回的 path 递归浏览。 */
+/**
+ * 仅原生 OPC UA 按 AddressSpace（点位/变量树）浏览。
+ * FOCAS 虽然驱动实现同一个 IAddressSpaceBrowser，但其"文件"在 //CNC_MEM（由
+ * /api/program-transfer/{id}/files 暴露），AddressSpace 里只有 /CNC 点位——
+ * 若对 FOCAS 走 AddressSpace，传输界面的"设备端路径"就会枚举出点位而不是文件。
+ */
 function remotePathPickerUsesAddressSpace(ui: DeviceUi | undefined): boolean {
     const protocol = getDeviceTransferProtocol(ui);
-    return protocol === "OpcUa" || protocol === "FOCAS";
+    return protocol === "OpcUa";
 }
 
 function addressSpaceNodeIsFolder(n: AddressNode): boolean {
@@ -4404,6 +4432,83 @@ const stopCollection = (deviceId?: string) => {
     ElMessage.success(deviceId ? "该设备已停止采集" : "已停止全部采集");
 };
 
+/** 采集管线（Host）才是会向 MQTT 发布的链路；设备页的“采集”只是浏览器读循环。 */
+async function refreshPipelineStatus() {
+    try {
+        const map = await machineConnectionCollectionApi.status();
+        pipelineStatus.value = map;
+        const running = new Set<string>();
+        for (const task of Object.values(map)) {
+            if (task.isRunning) {
+                running.add(task.deviceId);
+                pipelineTaskIds.value[task.deviceId] = task.taskId;
+            }
+        }
+        for (const deviceId of Object.keys(pipelineTaskIds.value)) {
+            if (!running.has(deviceId)) delete pipelineTaskIds.value[deviceId];
+        }
+    } catch {
+        // status is best-effort; keep the last known state
+    }
+}
+
+function pipelineGroupsFromPoints(rows: DatacollectionRow[]): CollectionGroupConfig[] {
+    const byFrequency = new Map<number, DatacollectionRow[]>();
+    for (const row of rows) {
+        const frequency = Math.min(3_600_000, Math.max(100, Number(row.collectionFrequency) || 1000));
+        const list = byFrequency.get(frequency) ?? [];
+        list.push(row);
+        byFrequency.set(frequency, list);
+    }
+    return [...byFrequency.entries()].map(([frequency, list]) => ({
+        groupName: `g${frequency}`,
+        intervalMs: frequency,
+        tags: list.map((row) => ({
+            address: row.path,
+            dataType: row.datatype as CollectionDataType,
+            displayName: row.name,
+            unit: null,
+        })),
+    }));
+}
+
+async function togglePipeline(deviceId?: string) {
+    if (!deviceId || pipelineBusy.value[deviceId]) return;
+    pipelineBusy.value[deviceId] = true;
+    try {
+        const taskId = pipelineTaskIds.value[deviceId];
+        if (taskId) {
+            await machineConnectionCollectionApi.stopCollection(taskId);
+            delete pipelineTaskIds.value[deviceId];
+            ElMessage.success("采集管线已停止");
+            return;
+        }
+        const rows = await datacollectionApi.list(deviceId);
+        if (!rows.length) {
+            ElMessage.warning("请先在“点位配置”中保存点位，再启动采集管线");
+            return;
+        }
+        const groups = pipelineGroupsFromPoints(rows);
+        try {
+            const profiles = await machineConnectionCollectionApi.listProfiles(deviceId);
+            if (!profiles.length) {
+                await machineConnectionCollectionApi.createProfile(deviceId, { name: "设备页采集", groups });
+            }
+        } catch {
+            // profile sync is best-effort; starting the pipeline does not require a profile
+        }
+        const { taskId: started } = await machineConnectionCollectionApi.startCollection(deviceId, groups);
+        pipelineTaskIds.value[deviceId] = started;
+        ElMessage.success("采集管线已启动：每个周期会发布 MQTT");
+        void refreshPipelineStatus();
+    } catch (error: any) {
+        const message = error?.response?.data?.error || error?.response?.data?.detail || error?.message;
+        ElMessage.error(message || "采集管线操作失败");
+    } finally {
+        pipelineBusy.value[deviceId] = false;
+    }
+}
+
 function formatRangeTime(mode: CollectionHistoryMode): { start: Date; end: Date } | null {
     const now = new Date();
     if (mode === "day") {
@@ -4773,6 +4878,7 @@ watch([refreshMode, pointDialogVisible], ([mode, visible]) => {
 onBeforeUnmount(() => {
     stopPointAutoRefresh();
     stopCollectionTimers();
+    if (pipelinePollTimer) window.clearInterval(pipelinePollTimer);
 });
 
 // 分页处理

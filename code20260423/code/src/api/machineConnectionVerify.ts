@@ -27,6 +27,8 @@ export interface VerifyRunOptions {
     concurrentDeviceIds?: string[] | null;
     /** Explicit permission for isolated file-test writes; never authorizes NC execution. */
     allowFileWrites?: boolean;
+    /** Feasibility self-check: shorten durations and relax pass thresholds so all seven metrics can produce a result. */
+    feasibility?: boolean;
 }
 
 export interface VerifyMetricResult {
