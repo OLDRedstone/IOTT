@@ -28,7 +28,7 @@ var services = new List<IDeviceService>
 };
 
 var configPath = Path.Combine(AppContext.BaseDirectory, "sim-config.json");
-builder.Services.AddSingleton(sp => new ServiceRegistry(services, configPath, sp.GetRequiredService<ILogger<ServiceRegistry>>()));
+builder.Services.AddSingleton(sp => new ServiceRegistry(services, configPath, sp.GetRequiredService<ILogger<ServiceRegistry>>(), sp.GetRequiredService<ILoggerFactory>()));
 builder.Services.AddSingleton(services);
 
 var app = builder.Build();
@@ -79,11 +79,25 @@ app.MapPut("/api/failure", (FailureUpdateDto dto, ServiceRegistry reg) =>
     return Results.Ok(new { message = "随机失败率已应用", enabled = s.Enabled, ratePercent = s.RatePercent, dropConnection = s.DropConnection });
 });
 
+// 虚拟第三方应用（MQTT 订阅端）：验证第三方按《第三方数据同步接口文档》订阅我方出站主题的连通性与契约一致性。
+app.MapGet("/api/thirdparty/status", (ServiceRegistry reg) => Results.Ok(reg.ThirdParty.GetStatus()));
+
+app.MapPut("/api/thirdparty", (ThirdPartySubscriberConfig cfg, ServiceRegistry reg) =>
+{
+    reg.SetThirdParty(cfg);
+    return Results.Ok(new { message = "第三方订阅模拟配置已应用", status = reg.ThirdParty.GetStatus() });
+});
+
 app.MapGet("/api/doc", (ServiceRegistry reg) => Results.Content(BuildPortDoc(reg), "text/markdown; charset=utf-8"));
 app.MapGet("/api/ports", (ServiceRegistry reg) => Results.Ok(reg.GetInfos().Select(s => new { s.Key, s.Name, s.Port, s.Enabled, s.State })));
 
 await registry.StartAllAsync(CancellationToken.None);
-app.Lifetime.ApplicationStopping.Register(() => registry.StopAllAsync(CancellationToken.None).GetAwaiter().GetResult());
+registry.ThirdParty.Start(app.Lifetime.ApplicationStopping);
+app.Lifetime.ApplicationStopping.Register(() =>
+{
+    try { registry.ThirdParty.Stop(); } catch { }
+    try { registry.StopAllAsync(CancellationToken.None).GetAwaiter().GetResult(); } catch { }
+});
 
 app.Logger.LogInformation("模拟设备网关管理台: http://0.0.0.0:{Port}/", builder.Configuration["Urls"]);
 app.Logger.LogInformation("端口映射：{Map}", string.Join("  ", registry.GetInfos().Select(s => $"{s.Key}={s.Port}[{s.State}]")));

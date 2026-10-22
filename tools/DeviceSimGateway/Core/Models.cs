@@ -64,6 +64,20 @@ public sealed class GeneratorConfig
     };
 }
 
+/// <summary>虚拟第三方应用（MQTT 订阅端）配置：按《第三方数据同步接口文档》订阅我方出站主题。</summary>
+public sealed class ThirdPartySubscriberConfig
+{
+    public bool Enabled { get; set; }
+    public string BrokerHost { get; set; } = "127.0.0.1";
+    public int BrokerPort { get; set; } = 1883;
+    /// <summary>订阅过滤器；文档口径为 industrial-iot/devices/+/data。</summary>
+    public string TopicFilter { get; set; } = "industrial-iot/devices/+/data";
+    public string ClientId { get; set; } = "third-party-sim";
+    public string Username { get; set; } = "";
+    public string Password { get; set; } = "";
+    public bool UseTls { get; set; }
+}
+
 public sealed class GatewayConfig
 {
     public int MgmtPort { get; set; } = 8090;
@@ -76,6 +90,9 @@ public sealed class GatewayConfig
     public double FailureRatePercent { get; set; }
     /// <summary>true=断链，false=返回协议错误/坏质量。</summary>
     public bool FailureDropConnection { get; set; } = true;
+
+    /// <summary>虚拟第三方应用（MQTT 订阅端）配置。</summary>
+    public ThirdPartySubscriberConfig ThirdParty { get; set; } = new();
 }
 
 public sealed record ServiceRuntime(

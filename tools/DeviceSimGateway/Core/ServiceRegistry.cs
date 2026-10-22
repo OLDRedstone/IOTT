@@ -19,12 +19,14 @@ public sealed class ServiceRegistry : IDisposable
 
     public SimDataStore Store { get; }
     public DataGenerator Generator { get; }
+    public ThirdPartySubscriber ThirdParty { get; }
 
-    public ServiceRegistry(IEnumerable<IDeviceService> services, string configPath, ILogger<ServiceRegistry> log)
+    public ServiceRegistry(IEnumerable<IDeviceService> services, string configPath, ILogger<ServiceRegistry> log, ILoggerFactory loggerFactory)
     {
         _services = services.ToList();
         _configPath = configPath;
         _log = log;
+        ThirdParty = new ThirdPartySubscriber(loggerFactory.CreateLogger<ThirdPartySubscriber>());
 
         var cfg = LoadConfig();
         foreach (var svc in _services)
@@ -40,6 +42,7 @@ public sealed class ServiceRegistry : IDisposable
         }
         Store = new SimDataStore(cfg.Generator);
         Store.Failure.Apply(cfg.FailureEnabled, cfg.FailureRatePercent, cfg.FailureDropConnection);
+        ThirdParty.Apply(cfg.ThirdParty);
         Generator = new DataGenerator(Store, cfg.Generator);
         Generator.SeedHolding();
         SaveConfig();
@@ -66,6 +69,7 @@ public sealed class ServiceRegistry : IDisposable
             FailureEnabled = failure.Enabled,
             FailureRatePercent = failure.RatePercent,
             FailureDropConnection = failure.DropConnection,
+            ThirdParty = ThirdParty.Config,
         };
         try { File.WriteAllText(_configPath, JsonSerializer.Serialize(cfg, JsonOpts)); }
         catch (Exception ex) { _log.LogWarning(ex, "写入 sim-config.json 失败"); }
@@ -139,6 +143,13 @@ public sealed class ServiceRegistry : IDisposable
     public void SetGenerator(GeneratorConfig cfg)
     {
         Generator.Apply(cfg);
+        SaveConfig();
+    }
+
+    /// <summary>应用"虚拟第三方订阅"配置并持久化。</summary>
+    public void SetThirdParty(ThirdPartySubscriberConfig cfg)
+    {
+        ThirdParty.Apply(cfg);
         SaveConfig();
     }
 

@@ -99,6 +99,22 @@
   </div>
 
   <div class="card">
+    <h2>虚拟第三方订阅（MQTT 消费端模拟）</h2>
+    <div class="row" style="margin-bottom:8px">
+      <label><input id="tpEnabled" type="checkbox"> 启用</label>
+      <label>Broker <input id="tpHost" type="text" value="127.0.0.1" style="width:120px"></label>
+      <label>端口 <input id="tpPort" type="number" min="1" max="65535" value="1883" style="width:70px"></label>
+      <label>Topic <input id="tpFilter" type="text" value="industrial-iot/devices/+/data" style="width:250px"></label>
+      <label>ClientId <input id="tpClientId" type="text" value="third-party-sim" style="width:130px"></label>
+      <button id="applyThirdParty" class="primary">应用</button>
+      <span id="tpMsg" class="mut"></span>
+    </div>
+    <div class="row"><span id="tpStatus" class="mut"></span></div>
+    <pre id="tpRecent" style="max-height:170px;overflow:auto;font-size:12px;margin:6px 0 0"></pre>
+    <p class="mut" style="margin:0">按《第三方数据同步接口文档》订阅我方出站主题（默认 industrial-iot/devices/+/data），解析 values[] 并按 dataType/quality 枚举与 deviceId+address+timestamp 去重统计。</p>
+  </div>
+
+  <div class="card">
     <h2>接入说明</h2>
     <p class="mut">本机作为"机床/PLC 服务端"，目标机（运行 Host）通过内网/网线连接本机对应端口即可：</p>
     <ul class="mut">
@@ -140,9 +156,10 @@ document.addEventListener('click', async e => {
     const port = Number(document.querySelector(`[data-port="${key}"]`).value);
     const enabled = document.querySelector(`[data-en="${key}"]`).checked;
     await api(`/api/services/${key}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ port, enabled }) });
-  } else if (t.id === 'refresh') { await loadServices(); await loadGen(); await loadFailure(); }
+  } else if (t.id === 'refresh') { await loadServices(); await loadGen(); await loadFailure(); await loadThirdParty(); }
   else if (t.id === 'applyGen') { await applyGen(); return; }
   else if (t.id === 'applyFailure') { await applyFailure(); return; }
+  else if (t.id === 'applyThirdParty') { await applyThirdParty(); return; }
   await loadServices();
 });
 
@@ -165,6 +182,23 @@ async function applyGen() {
   };
   const r = await api('/api/generator', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cfg) });
   $('#genMsg').textContent = r.message || '已应用';
+}
+
+async function loadThirdParty() {
+  const s = await api('/api/thirdparty/status');
+  $('#tpEnabled').checked = !!s.enabled;
+  if (s.broker) { const parts = String(s.broker).split(':'); if (parts[0]) $('#tpHost').value = parts[0]; if (parts[1]) $('#tpPort').value = parts[1]; }
+  if (s.topicFilter) $('#tpFilter').value = s.topicFilter;
+  if (s.clientId) $('#tpClientId').value = s.clientId;
+  $('#tpStatus').textContent = `连接=${s.isConnected}  收到=${s.receivedMessages}  设备=${s.devices}  新增点位=${s.points}  坏质量=${s.badQualityPoints}  去重丢弃=${s.dedupedPoints}  解析错误=${s.parseErrors}  最近=${s.lastMessageAt || '-'}  错误=${s.lastError || '-'}`;
+  $('#tpRecent').textContent = (s.recent || []).slice().reverse().map(x => JSON.stringify(x)).join('\n');
+}
+async function applyThirdParty() {
+  const r = await api('/api/thirdparty', { method: 'PUT', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ enabled: $('#tpEnabled').checked, brokerHost: $('#tpHost').value, brokerPort: Number($('#tpPort').value) || 1883,
+      topicFilter: $('#tpFilter').value, clientId: $('#tpClientId').value, username: '', password: '', useTls: false }) });
+  $('#tpMsg').textContent = r.message || '已应用';
+  await loadThirdParty();
 }
 
 async function loadFailure() {
@@ -209,7 +243,8 @@ setInterval(async () => {
   } catch { }
 }, 1200);
 
-loadServices(); loadGen(); loadFailure();
+loadServices(); loadGen(); loadFailure(); loadThirdParty();
+setInterval(() => { loadThirdParty().catch(() => {}); }, 3000);
 </script>
 </body>
 </html>

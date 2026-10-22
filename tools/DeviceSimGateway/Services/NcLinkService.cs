@@ -202,7 +202,6 @@ public sealed class NcLinkService : IDeviceService
     private JsonObject ValueNode(string id)
     {
         var s = _store!;
-        var fail = s.Failure.ShouldFail();
         object val;
         lock (s.Sync)
         {
@@ -220,10 +219,10 @@ public sealed class NcLinkService : IDeviceService
         var node = new JsonObject
         {
             ["id"] = id,
-            ["quality"] = fail ? "bad" : "good",
+            ["quality"] = "good",
             ["timestamp"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
         };
-        if (!fail) node["value"] = JsonValue.Create(val);
+        node["value"] = JsonValue.Create(val);
         return node;
     }
 
