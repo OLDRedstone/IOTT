@@ -29,11 +29,11 @@
 					<div class="device-option">
 						<span>{{ device.name }}（{{ device.protocol }} · {{ device.ip }}:{{ device.port }}）</span>
 						<el-tag
-							:type="device.status === 'Online' || device.status === '在线' ? 'success' : 'warning'"
+							:type="deviceRuntimeStatusType(device)"
 							size="small"
 							style="margin-left: 10px"
 						>
-							{{ device.status === "Online" ? "在线" : device.status === "Offline" ? "离线" : device.status }}
+							{{ deviceRuntimeStatusText(device) }}
 						</el-tag>
 					</div>
 				</el-option>
@@ -347,6 +347,10 @@ import {
 import { ElMessage, ElMessageBox } from "element-plus";
 import { machineConnectionDevicesApi } from "@/api/machineConnectionDevices";
 import {
+	getDeviceRuntimeStatus,
+	type DeviceRuntimeStatus,
+} from "@/stores/deviceRuntimeStatus";
+import {
 	machineConnectionProgramTransferApi,
 	type ProgramTransferResponse,
 	type ProgramTransferCapability,
@@ -390,6 +394,16 @@ interface Device {
 	status: string;
 }
 
+const deviceRuntimeStatus = (device: Device): DeviceRuntimeStatus => getDeviceRuntimeStatus(device.id);
+const deviceRuntimeStatusText = (device: Device) => {
+	const status = deviceRuntimeStatus(device);
+	return status === "online" ? "在线" : status === "error" ? "异常" : "未知";
+};
+const deviceRuntimeStatusType = (device: Device) => {
+	const status = deviceRuntimeStatus(device);
+	return status === "online" ? "success" : status === "error" ? "danger" : "info";
+};
+
 function getErr(e: unknown, fallback: string): string {
 	const ax = e as {
 		response?: { data?: { error?: string; detail?: string } };
@@ -416,6 +430,7 @@ const uploadRemotePath = ref("/");
 // 设备文件系统（来自后端 /api/program-transfer/{id}/files）
 const deviceFiles = ref<FileItem[]>([]);
 const expandedDeviceKeys = ref<string[]>([]);
+let expandAllDeviceFilesOnLoad = true;
 const selectedDeviceFiles = ref<string[]>([]);
 const loadingDeviceFiles = ref(false);
 
@@ -477,6 +492,8 @@ function buildFileTree(
 // 加载设备文件 = 后端真实目录浏览
 const loadDeviceFiles = async () => {
 	if (!selectedDevice.value) return;
+	const previousExpanded = new Set(expandedDeviceKeys.value);
+	const expandAll = expandAllDeviceFilesOnLoad;
 	const deviceId = selectedDevice.value.id;
 	const contextVersion = deviceContextVersion;
 	const requestSequence = ++deviceFilesLoadSequence;
@@ -493,9 +510,11 @@ const loadDeviceFiles = async () => {
 			requestSequence !== deviceFilesLoadSequence
 		) return;
 		deviceFiles.value = buildFileTree(items);
-		expandedDeviceKeys.value = deviceFiles.value
-			.filter((n) => n.type === "directory")
-			.map((n) => n.path);
+		const directories = deviceFiles.value
+			.filter(n => n.type === "directory")
+			.map(n => n.path);
+		expandedDeviceKeys.value = expandAll ? directories : directories.filter(path => previousExpanded.has(path));
+		expandAllDeviceFilesOnLoad = false;
 	} catch (e: unknown) {
 		if (
 			!isCurrentDeviceContext(deviceId, contextVersion) ||
@@ -514,6 +533,7 @@ const loadDeviceFiles = async () => {
 };
 
 const refreshDeviceFiles = () => {
+	expandAllDeviceFilesOnLoad = false;
 	void loadDeviceFiles();
 };
 
@@ -523,6 +543,7 @@ function handleDeviceChange() {
 	transferHistory.value = [];
 	capabilities.value = null;
 	resumingTransferId.value = "";
+	expandAllDeviceFilesOnLoad = true;
 	deviceFiles.value = [];
 	expandedDeviceKeys.value = [];
 	selectedDeviceFiles.value = [];
