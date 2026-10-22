@@ -59,6 +59,11 @@ nclink-api-server-*/
 host-check/
 upx/
 
+# ---- Local FOCAS probe artifacts ----
+/FocasProbe.*
+/Fwlib*.dll
+/fwlib*.dll
+
 # ---- Archives & crash dumps ----
 *.rar
 *.stackdump
