@@ -96,7 +96,11 @@ function bands(id: string) { return metricRule(id)?.scoreBands.map(band => `≥$
 function percent(value?: number) { return typeof value === 'number' && Number.isFinite(value) ? Number(Math.max(0, Math.min(100, value)).toFixed(2)) : 0; }
 function judgment(status: string) { return ({ passed: '达标', failed: '未达标', error: '执行错误', unrated: '未判定', pending: '待判定', running: '待判定' } as Record<string, string>)[status] || '待判定'; }
 function measurement(metric: VerifyMetricResult) {
-  return typeof metric.measurement === 'number' && Number.isFinite(metric.measurement) ? `${metric.measurement} ${metric.unit || ''}` : metric.value || '暂无可靠实测';
+  if (typeof metric.measurement === 'number' && Number.isFinite(metric.measurement)) {
+    const value = metric.unit === 'count' ? metric.measurement.toFixed(0) : metric.measurement.toFixed(2);
+    return `${value} ${metric.unit || ''}`;
+  }
+  return metric.value || '暂无可靠实测';
 }
 function hasMeasurement(metric: VerifyMetricResult) {
   return typeof metric.measurement === 'number' && Number.isFinite(metric.measurement);

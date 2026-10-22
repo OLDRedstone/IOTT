@@ -1,4 +1,4 @@
-import { computed, onScopeDispose, ref, toRaw } from 'vue';
+import { computed, nextTick, onScopeDispose, ref, toRaw } from 'vue';
 import { useRouter } from 'vue-router';
 import { isAxiosError } from 'axios';
 import { ElMessage, ElMessageBox } from 'element-plus';
@@ -63,6 +63,7 @@ export function useTaskWorkbench() {
   const metrics = computed(() => categoryMetrics.value[draft.value?.evaluationCategory ?? 'machine']);
   const selectedTask = ref<VerifyTaskDto | null>(null);
   const expandedRows = ref<string[]>([]);
+  const syncingExpanded = ref(false);
   const machineFor = (task: VerifyTaskDto) => machines.value.find(machine => machine.id === (task.machineId || task.deviceId));
   const metricsFor = (task: VerifyTaskDto) => categoryMetrics.value[task.evaluationCategory ?? 'machine'];
   const isTaskRunning = (task: VerifyTaskDto) => executingIds.value.has(task.id) || task.status === 'running';
@@ -137,12 +138,24 @@ export function useTaskWorkbench() {
     const selected = new Set(selectedTaskIds.value);
     await executeTasks(tasks.value.filter(task => selected.has(task.id)), true);
   }
-  function applyTaskList(taskList: VerifyTaskDto[]) {
+  async function applyTaskList(taskList: VerifyTaskDto[]) {
     if (disposed) return;
+    const keepExpanded = [...expandedRows.value];
     const previous = new Map(tasks.value.map(task => [task.id, task]));
-    tasks.value = taskList.map(task => executingIds.value.has(task.id) ? previous.get(task.id) ?? { ...task, status: 'running' } : task);
+    const previousStatus = new Map(tasks.value.map(task => [task.id, task.status]));
+    const executing = new Set(executingIds.value);
+    syncingExpanded.value = true;
+    const next = taskList.map(incoming => {
+      const existing = previous.get(incoming.id);
+      if (!existing) return executing.has(incoming.id) ? { ...incoming, status: 'running' } : incoming;
+      if (executing.has(incoming.id)) return existing;
+      Object.assign(existing, incoming);
+      return existing;
+    });
+    const sameRows = tasks.value.length === next.length && tasks.value.every((task, index) => task === next[index]);
+    if (!sameRows) tasks.value = next;
     for (const task of tasks.value) {
-      if (previous.get(task.id)?.status === 'running' && task.status !== 'running') {
+      if (previousStatus.get(task.id) === 'running' && task.status !== 'running') {
         if (task.status === 'completed') ElMessage.success(`“${task.name}”执行已完成；验收结论：${task.result || '待判定'}`);
         else if (task.status === 'failed') ElMessage.warning(`“${task.name}”执行失败或中断：${task.detail}`);
       }
@@ -151,6 +164,13 @@ export function useTaskWorkbench() {
     taskRevision++;
     progressError.value = '';
     lastPolledAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    await nextTick();
+    if (!disposed) {
+      const ids = new Set(tasks.value.map(task => task.id));
+      expandedRows.value = keepExpanded.filter(id => ids.has(id));
+      await nextTick();
+    }
+    syncingExpanded.value = false;
   }
   async function refreshTasks() {
     if (disposed || pollInFlight) return;
@@ -161,7 +181,7 @@ export function useTaskWorkbench() {
     pollController = typeof AbortController === 'function' ? new AbortController() : undefined;
     try {
       const taskList = await machineConnectionVerifyApi.listTasks(pollController?.signal);
-      if (generation === pollGeneration && revision === taskRevision && version === taskFetchVersion) applyTaskList(taskList);
+      if (generation === pollGeneration && revision === taskRevision && version === taskFetchVersion) await applyTaskList(taskList);
     } catch {
       if (generation === pollGeneration && !disposed) progressError.value = '进度暂时无法刷新，后台测试不会因浏览器断开而停止；保留最后一次实测快照，稍后自动重试。';
     } finally { pollInFlight = false; pollController = undefined; }
@@ -180,7 +200,7 @@ export function useTaskWorkbench() {
       targetDevices.value = devices;
       machines.value = devices.filter(device => !device.type || device.type === 'CNC');
       categoryMetrics.value = { machine: taskMetricOptions(config, autoMetrics), machining: taskMetricOptions(machiningConfig, autoMetrics) };
-      if (generation === pollGeneration && revision === taskRevision && version === taskFetchVersion) applyTaskList(taskList);
+      if (generation === pollGeneration && revision === taskRevision && version === taskFetchVersion) await applyTaskList(taskList);
     } catch (error) { reportError(error, '加载验证任务失败'); }
     finally { loading.value = false; if (generation === pollGeneration) startPolling(); }
   }
@@ -332,5 +352,5 @@ export function useTaskWorkbench() {
   return { tasks, machines, metrics, loading, saving, executingIds, cancellingIds, selectedTaskIds, runningTaskCount, maxParallelTasks,
     isTaskRunning, onSelectionChange, executeSelectedTasks, exportingId, editorVisible, resultVisible,
     progressError, lastPolledAt, refreshTasks, startPolling, stopPolling,
-    draft, selectedTask, expandedRows, machineFor, metricsFor, selectCategory, loadPage, addTask, editTask, saveTask, executeTask, cancelTask, deleteTask, viewResult, exportTask, canImport, importKnowledge };
+    draft, selectedTask, expandedRows, syncingExpanded, machineFor, metricsFor, selectCategory, loadPage, addTask, editTask, saveTask, executeTask, cancelTask, deleteTask, viewResult, exportTask, canImport, importKnowledge };
 }

@@ -53,7 +53,7 @@ import { useTaskWorkbench } from './taskState';
 const { tasks, machines, metrics, loading, saving, executingIds, cancellingIds, selectedTaskIds, runningTaskCount, maxParallelTasks,
   isTaskRunning, onSelectionChange, executeSelectedTasks, exportingId, editorVisible, resultVisible,
   progressError, lastPolledAt, startPolling, stopPolling, refreshTasks,
-  draft, selectedTask, expandedRows, machineFor, metricsFor, selectCategory, loadPage, addTask, editTask, saveTask, executeTask, cancelTask, deleteTask, viewResult, exportTask, canImport, importKnowledge } = useTaskWorkbench();
+  draft, selectedTask, expandedRows, syncingExpanded, machineFor, metricsFor, selectCategory, loadPage, addTask, editTask, saveTask, executeTask, cancelTask, deleteTask, viewResult, exportTask, canImport, importKnowledge } = useTaskWorkbench();
 const filters = reactive({ status: '', keyword: '' });
 const applied = ref({ status: '', keyword: '' });
 const filteredTasks = computed(() => tasks.value.filter(task => {
@@ -64,7 +64,10 @@ const filteredTasks = computed(() => tasks.value.filter(task => {
 }));
 function search() { applied.value = { ...filters }; expandedRows.value = []; }
 function resetSearch() { Object.assign(filters, { status: '', keyword: '' }); search(); }
-function onExpand(_row: VerifyTaskDto, expanded: VerifyTaskDto[]) { expandedRows.value = expanded.map(task => task.id); }
+function onExpand(_row: VerifyTaskDto, expanded: VerifyTaskDto[]) {
+  if (syncingExpanded.value) return;
+  expandedRows.value = expanded.map(task => task.id);
+}
 function canSelectTask(task: VerifyTaskDto) { return !isTaskRunning(task); }
 onMounted(loadPage);
 onActivated(() => { startPolling(); void refreshTasks(); });
