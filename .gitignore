@@ -50,6 +50,7 @@ pnpm-debug.log*
 # ---- Gateway runtime data (generated sample data) & backups ----
 App_Data/
 *.bak
+backups/
 
 # ---- Host scratch / vendor extract ----
 tmp/
