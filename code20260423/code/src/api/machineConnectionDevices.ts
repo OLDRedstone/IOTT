@@ -1,4 +1,5 @@
 import { createMachineConnectionClient } from './machineConnectionClient'
+import { markDeviceError, markDeviceOnline } from '@/stores/deviceRuntimeStatus'
 
 /** 与 MachineConnectionApi / Industrial IoT 文档中设备 DTO 一致（枚举为 JSON 字符串） */
 export type DeviceTypeApi = 'CNC' | 'PLC' | 'Robot'
@@ -174,17 +175,31 @@ export const machineConnectionDevicesApi = {
 	},
 
 	async testConnection(id: string): Promise<ConnectionTestResult> {
-		const res = await client.post<ConnectionTestResult>(
-			`/api/devices/${encodeURIComponent(id)}/test-connection`,
-		)
-		return res.data
+		try {
+			const res = await client.post<ConnectionTestResult>(
+				`/api/devices/${encodeURIComponent(id)}/test-connection`,
+			)
+			if (res.data.success) markDeviceOnline(id)
+			else markDeviceError(id)
+			return res.data
+		} catch (error) {
+			markDeviceError(id)
+			throw error
+		}
 	},
 
 	async diagnose(id: string): Promise<DeviceDiagnoseResult> {
-		const res = await client.get<DeviceDiagnoseResult>(
-			`/api/devices/${encodeURIComponent(id)}/diagnose`,
-		)
-		return res.data
+		try {
+			const res = await client.get<DeviceDiagnoseResult>(
+				`/api/devices/${encodeURIComponent(id)}/diagnose`,
+			)
+			if (res.data.reachable) markDeviceOnline(id)
+			else markDeviceError(id)
+			return res.data
+		} catch (error) {
+			markDeviceError(id)
+			throw error
+		}
 	},
 
 	async connectionStats(id: string, hours = 24): Promise<ConnectionStatsSummary> {

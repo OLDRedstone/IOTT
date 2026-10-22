@@ -29,12 +29,12 @@
 						class="device-card">
 						<div class="card-header">
 							<div class="device-info">
-								<el-tag size="small" type="info">{{ device.status || "离线" }}</el-tag>
+								<el-tag size="small" :type="getStatusType(getDeviceStatusText(device))">{{ getDeviceStatusText(device) }}</el-tag>
 								<h3 class="device-name">{{ device.name }}</h3>
 								<p class="device-code">设备编号：{{ device.deviceCode || "-" }} | {{ device.model || "-" }}</p>
 							</div>
-							<el-tag :type="getStatusType(device.status)" effect="dark">
-								{{ device.status || "离线" }}
+							<el-tag :type="getStatusType(getDeviceStatusText(device))" effect="dark">
+								{{ getDeviceStatusText(device) }}
 							</el-tag>
 						</div>
 						<div class="card-body">
@@ -243,6 +243,10 @@ import {
 	machineConnectionDevicesApi,
 	type DeviceDto,
 } from "@/api/machineConnectionDevices";
+import {
+	getDeviceRuntimeStatus,
+	type DeviceRuntimeStatus,
+} from "@/stores/deviceRuntimeStatus";
 
 // 设备类型定义
 interface Device {
@@ -303,6 +307,12 @@ function getErr(e: unknown, fallback: string): string {
 }
 
 // 后端 DeviceDto → 页面 Device（制造商=brand，编号/描述存 extendedProperties）
+const robotRuntimeStatusText = (status: DeviceRuntimeStatus) =>
+	status === "online" ? "在线" : status === "error" ? "故障" : "未知";
+
+const getDeviceStatusText = (device: Device) =>
+	robotRuntimeStatusText(getDeviceRuntimeStatus(device.id));
+
 function mapToRobot(d: DeviceDto): Device {
 	return {
 		id: d.id,
@@ -314,7 +324,7 @@ function mapToRobot(d: DeviceDto): Device {
 		model: d.model,
 		manufacturer: d.brand,
 		description: d.extendedProperties?.description ?? "",
-		status: d.status,
+		status: robotRuntimeStatusText(getDeviceRuntimeStatus(d.id)),
 		station: Number((d.protocol === "ModbusTCP" ? d.extendedProperties?.UnitId : undefined)
 			?? d.extendedProperties?.Station ?? 1) || 1,
 		...robotOptions(d.extendedProperties),
@@ -405,7 +415,7 @@ const currentDevice = reactive<Device>({
 	model: "",
 	manufacturer: "",
 	description: "",
-	status: "离线",
+	status: "未知",
 	station: 1,
 	...robotOptions(),
 });
@@ -419,9 +429,17 @@ const testResult = ref<any>(null);
 const getStatusType = (status: string) => {
 	switch (status) {
 		case "在线":
+		case "运行中":
 			return "success";
+		case "待机中":
+			return "info";
+		case "告警":
+			return "warning";
+		case "故障":
 		case "离线":
 			return "danger";
+		case "未知":
+			return "info";
 		default:
 			return "info";
 	}
@@ -440,7 +458,7 @@ const openAddDeviceDialog = () => {
 		model: "",
 		manufacturer: "",
 		description: "",
-		status: "离线",
+		status: "未知",
 		station: 1,
 		...robotOptions(),
 	});

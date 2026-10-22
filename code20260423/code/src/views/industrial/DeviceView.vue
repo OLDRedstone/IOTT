@@ -114,16 +114,8 @@
                                 <p class="device-code">设备编号：{{ device.code || "-" }} | {{ device.model }}</p>
                             </div>
                             <div class="device-status">
-                                <el-tag
-                                    :type="device.status === 'online' ? 'success' : device.status === 'offline' ? 'warning' : 'danger'"
-                                    :effect="'dark'">
-                                    {{
-                                        device.status === "online"
-                                            ? "在线"
-                                            : device.status === "offline"
-                                                ? "离线"
-                                                : "异常"
-                                    }}
+                                <el-tag :type="getStatusType(getDeviceStatusText(device))" :effect="'dark'">
+                                    {{ getDeviceStatusText(device) }}
                                 </el-tag>
                             </div>
                         </div>
@@ -966,6 +958,10 @@ import {
 } from "@/api/machineConnectionProgramTransfer";
 import { buildProgramTransferConfig } from "./deviceTransferConfig";
 import { useAuthStore } from "@/stores/auth";
+import {
+    getDeviceRuntimeStatus,
+    type DeviceRuntimeStatus,
+} from "@/stores/deviceRuntimeStatus";
 import HistoryStorageSettings from "./HistoryStorageSettings.vue";
 import MqttForwardingStatus from "@/components/MqttForwardingStatus.vue";
 import SerialPortSettings from "../transfer/SerialPortSettings.vue";
@@ -1109,6 +1105,25 @@ function mapStatus(s: string): UiStatus {
 
     return "offline";
 }
+
+const cncRuntimeStatusText = (status: DeviceRuntimeStatus) =>
+    status === "online" ? "在线" : status === "error" ? "异常" : "未知";
+
+const getDeviceStatusText = (device: DeviceUi) =>
+    cncRuntimeStatusText(getDeviceRuntimeStatus(device.id));
+
+const getStatusType = (status: string) => {
+    switch (status) {
+        case "在线":
+            return "success";
+        case "异常":
+            return "danger";
+        case "未知":
+            return "info";
+        default:
+            return "info";
+    }
+};
 
 function formatSeenAt(iso: string | null | undefined): string {
     if (!iso) return "-";

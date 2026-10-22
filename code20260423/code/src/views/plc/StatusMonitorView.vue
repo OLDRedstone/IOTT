@@ -38,8 +38,8 @@
 						</el-col>
 						<el-col :span="6">
 							<el-statistic
-								:title="'离线设备'"
-								:value="offlineDevicesCount"
+								:title="'未知设备'"
+								:value="unknownDevicesCount"
 							/>
 						</el-col>
 						<el-col :span="6">
@@ -166,6 +166,10 @@ import { ref, computed, onMounted, onUnmounted } from "vue";
 import { VideoCamera } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { machineConnectionDevicesApi, type DeviceDto } from "@/api/machineConnectionDevices";
+import {
+	getDeviceRuntimeStatus,
+	type DeviceRuntimeStatus,
+} from "@/stores/deviceRuntimeStatus";
 
 interface Device {
 	id: string;
@@ -184,20 +188,17 @@ const detailDialogVisible = ref(false);
 const selectedDevice = ref<Device | null>(null);
 
 const nowText = () => new Date().toLocaleString();
-const mapStatus = (status: string) => {
-	if (status === "Online") return "在线";
-	if (status === "Error") return "告警";
-	return "离线";
-};
+const plcMonitorStatusText = (status: DeviceRuntimeStatus) =>
+	status === "online" ? "在线" : status === "error" ? "告警" : "未知";
 const toDevice = (device: DeviceDto): Device => ({
 	id: device.id,
 	name: device.name,
 	ip: device.host,
-	status: mapStatus(device.status),
+	status: plcMonitorStatusText(getDeviceRuntimeStatus(device.id)),
 	latency: "",
 	lastUpdate: device.lastSeenAt || device.createdAt || nowText(),
 	statusLogs: [
-		{ time: nowText(), message: `后端状态：${device.status}` },
+		{ time: nowText(), message: "初始状态：未检测" },
 	],
 });
 
@@ -211,7 +212,7 @@ const loadDevices = async () => {
 };
 
 const onlineDevicesCount = computed(() => devices.value.filter((d) => d.status === "在线").length);
-const offlineDevicesCount = computed(() => devices.value.filter((d) => d.status === "离线").length);
+const unknownDevicesCount = computed(() => devices.value.filter((d) => d.status === "未知").length);
 const alarmDevicesCount = computed(() => devices.value.filter((d) => d.status === "告警").length);
 
 const getStatusType = (status: string) => {
@@ -219,6 +220,8 @@ const getStatusType = (status: string) => {
 		case "在线": return "success";
 		case "离线": return "danger";
 		case "告警": return "warning";
+		case "故障": return "danger";
+		case "未知": return "info";
 		default: return "info";
 	}
 };

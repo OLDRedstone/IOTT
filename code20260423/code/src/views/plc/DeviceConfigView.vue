@@ -41,12 +41,12 @@
 						class="device-card">
 						<div class="card-header">
 							<div class="device-info">
-								<el-tag size="small" type="info">{{ device.status || "离线" }}</el-tag>
+								<el-tag size="small" :type="getStatusType(getDeviceStatusText(device))">{{ getDeviceStatusText(device) }}</el-tag>
 								<h3 class="device-name">{{ device.name }}</h3>
 								<p class="device-code">设备编号：{{ device.deviceCode || "-" }} | {{ device.model || "-" }}</p>
 							</div>
-							<el-tag :type="getStatusType(device.status)" effect="dark">
-								{{ device.status || "离线" }}
+							<el-tag :type="getStatusType(getDeviceStatusText(device))" effect="dark">
+								{{ getDeviceStatusText(device) }}
 							</el-tag>
 						</div>
 						<div class="card-body">
@@ -370,6 +370,10 @@ import {
 	machineConnectionDiagnosticsApi,
 	type PlcProtocolCapability,
 } from "@/api/machineConnectionDiagnostics";
+import {
+	getDeviceRuntimeStatus,
+	type DeviceRuntimeStatus,
+} from "@/stores/deviceRuntimeStatus";
 
 // ---------- 协议能力矩阵 ----------
 const capabilitiesDialogVisible = ref(false);
@@ -585,6 +589,12 @@ function extProp(d: DeviceDto, key: string): string | undefined {
 	return hit === undefined ? undefined : props[hit];
 }
 
+const plcRuntimeStatusText = (status: DeviceRuntimeStatus) =>
+	status === "online" ? "在线" : status === "error" ? "告警" : "未知";
+
+const getDeviceStatusText = (device: PLCDevice) =>
+	plcRuntimeStatusText(getDeviceRuntimeStatus(device.id));
+
 // 后端 DeviceDto → 页面 PLCDevice（站号/编号/描述存于 extendedProperties）
 function mapToPlc(d: DeviceDto): PLCDevice {
 	const station = extProp(d, "station");
@@ -601,7 +611,7 @@ function mapToPlc(d: DeviceDto): PLCDevice {
 		model: d.model,
 		station: station ? Number(station) : undefined,
 		description: extProp(d, "description") ?? "",
-		status: d.status,
+		status: plcRuntimeStatusText(getDeviceRuntimeStatus(d.id)),
 		extendedProperties: { ...d.extendedProperties },
 		originalProtocol: d.protocol,
 		hostLinkMode: mode === "serial" || (!mode && extProp(d, "PortName")?.trim()) ? "Serial" : "Tcp",
@@ -680,7 +690,7 @@ function blankDevice(): PLCDevice {
 		model: "",
 		station: 1,
 		description: "",
-		status: "离线",
+		status: "未知",
 		extendedProperties: {},
 		originalProtocol: "",
 		hostLinkMode: "Tcp",
@@ -984,8 +994,14 @@ const getStatusType = (status: string) => {
 	switch (status) {
 		case "在线":
 			return "success";
+		case "告警":
+			return "warning";
+		case "故障":
+			return "danger";
 		case "离线":
 			return "danger";
+		case "未知":
+			return "info";
 		default:
 			return "info";
 	}

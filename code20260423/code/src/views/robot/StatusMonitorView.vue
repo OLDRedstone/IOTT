@@ -38,8 +38,8 @@
 						</el-col>
 						<el-col :span="6">
 							<el-statistic
-								:title="'待机中'"
-								:value="idleRobotsCount"
+								:title="'未知'"
+								:value="unknownRobotsCount"
 							/>
 						</el-col>
 						<el-col :span="6">
@@ -194,6 +194,10 @@ import { ref, computed, onMounted, onUnmounted } from "vue";
 import { VideoCamera } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { machineConnectionDevicesApi, type DeviceDto } from "@/api/machineConnectionDevices";
+import {
+	getDeviceRuntimeStatus,
+	type DeviceRuntimeStatus,
+} from "@/stores/deviceRuntimeStatus";
 
 interface Robot {
 	id: string;
@@ -214,20 +218,17 @@ const detailDialogVisible = ref(false);
 const selectedRobot = ref<Robot | null>(null);
 
 const nowText = () => new Date().toLocaleString();
-const mapStatus = (status: string) => {
-	if (status === "Online") return "运行中";
-	if (status === "Error") return "故障";
-	return "待机中";
-};
+const robotMonitorStatusText = (status: DeviceRuntimeStatus) =>
+	status === "online" ? "运行中" : status === "error" ? "故障" : "未知";
 const toRobot = (device: DeviceDto): Robot => ({
 	id: device.id,
 	name: device.name,
 	model: device.model,
-	status: mapStatus(device.status),
+	status: robotMonitorStatusText(getDeviceRuntimeStatus(device.id)),
 	protocol: device.protocol,
 	errorMessage: "",
 	latency: "",
-	statusLogs: [{ time: nowText(), message: `后端状态：${device.status}` }],
+	statusLogs: [{ time: nowText(), message: "初始状态：未检测" }],
 	lastUpdate: device.lastSeenAt || device.createdAt || nowText(),
 });
 
@@ -241,15 +242,25 @@ const loadRobots = async () => {
 };
 
 const runningRobotsCount = computed(() => robots.value.filter((r) => r.status === "运行中").length);
-const idleRobotsCount = computed(() => robots.value.filter((r) => r.status === "待机中").length);
+const unknownRobotsCount = computed(() => robots.value.filter((r) => r.status === "未知").length);
 const errorRobotsCount = computed(() => robots.value.filter((r) => r.status === "故障").length);
 
 const getStatusType = (status: string) => {
 	switch (status) {
-		case "运行中": return "success";
-		case "待机中": return "info";
-		case "故障": return "danger";
-		default: return "warning";
+		case "运行中":
+		case "在线":
+			return "success";
+		case "待机中":
+			return "info";
+		case "故障":
+		case "离线":
+			return "danger";
+		case "告警":
+			return "warning";
+		case "未知":
+			return "info";
+		default:
+			return "info";
 	}
 };
 
