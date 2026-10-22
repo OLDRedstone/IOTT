@@ -32,4 +32,14 @@ public sealed class SimulatedVerifyMeasurementAdapter : IVerifyMeasurementAdapte
         return Task.FromResult(new VerifyTransferObservation(true, true, true, true, bytes, seconds,
             $"模拟测试：上传 {remoteName} 并回读校验通过（{bytes} 字节）"));
     }
+
+    public Task<VerifyConnectionsObservation> MeasureConnectionsAsync(VerifyMeasurementTarget target, int count,
+        string address, string dataType, int timeoutMs, CancellationToken ct)
+        => Task.FromResult(new VerifyConnectionsObservation(true, true, count, count,
+            $"simulated: {count}/{count} independent connections"));
+
+    public Task<VerifyTransferSnapshot> GetTransferSnapshotAsync(VerifyMeasurementTarget target, CancellationToken ct)
+        => Task.FromResult(new VerifyTransferSnapshot(true,
+            string.IsNullOrWhiteSpace(target.Transfer?.Protocol) ? target.Protocol : target.Transfer!.Protocol,
+            "simulated snapshot"));
 }
