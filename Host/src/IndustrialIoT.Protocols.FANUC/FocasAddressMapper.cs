@@ -377,7 +377,10 @@ internal sealed partial class FocasAddressMapper
         if (cache is not null && cache.Parameters.TryGetValue(number, out var cached))
             return cached;
 
-        int rc = _api.ReadParameter(_handle, number, out var value);
+        // 时间类参数（6750 开机/6753 切削秒/6754 切削分）在 0i-D 上是"2 字长(8 字节)"，
+        // 必须按样例那样用 length = 8 + 32 读取；其余参数用 8。
+        short length = number is 6750 or 6753 or 6754 ? (short)(8 + 32) : (short)8;
+        int rc = _api.ReadParameter(_handle, number, length, out var value);
         ThrowIfError(rc, "ReadParameter");
         if (cache is not null)
             cache.Parameters[number] = value;
