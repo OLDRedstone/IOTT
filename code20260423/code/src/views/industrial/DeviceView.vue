@@ -4682,7 +4682,7 @@ function applyCollectionBatchResult(deviceId: string, result: TelemetryBatchResu
     }
 }
 
-async function runCollectionBatch(deviceId: string, points: SavedCollectionPoint[]) {
+async function runCollectionBatchChunk(deviceId: string, points: SavedCollectionPoint[]) {
     if (points.length === 0) return;
     const resp = await machineConnectionPointsApi.readTags(deviceId, {
         tags: points.map((p) => ({
@@ -4750,6 +4750,15 @@ async function runCollectionBatch(deviceId: string, points: SavedCollectionPoint
         });
 }
 
+const COLLECTION_READ_CHUNK = 24;
+
+async function runCollectionBatch(deviceId: string, points: SavedCollectionPoint[]) {
+    if (points.length === 0) return;
+    for (let offset = 0; offset < points.length; offset += COLLECTION_READ_CHUNK) {
+        await runCollectionBatchChunk(deviceId, points.slice(offset, offset + COLLECTION_READ_CHUNK));
+    }
+}
+
 const runCollection = async (deviceIdFromCard?: string) => {
     const deviceId = deviceIdFromCard || collectionDeviceId.value;
     if (!deviceId) {
@@ -4793,6 +4802,20 @@ const runCollection = async (deviceIdFromCard?: string) => {
         stopCollectionTimers(deviceId);
         ElMessage.warning("该设备暂无已保存采集点位，请先在“点位配置”中勾选并保存");
         return;
+    }
+
+    const isFocasDevice = devices.value.find((device) => device.id === deviceId)?.protocol?.toUpperCase() === "FOCAS";
+    if (isFocasDevice) {
+        const programPoints = points.filter((point) => point.path.toLowerCase().startsWith("/programs/"));
+        if (programPoints.length > 0) {
+            points = points.filter((point) => !point.path.toLowerCase().startsWith("/programs/"));
+            ElMessage.warning(`已跳过 ${programPoints.length} 个程序内容点位：当前 FOCAS 驱动未实现 /Programs/* 读取`);
+        }
+        if (points.length === 0) {
+            stopCollectionTimers(deviceId);
+            ElMessage.warning("当前只有程序内容点位，FOCAS 驱动暂不支持，无法启动采集");
+            return;
+        }
     }
 
     try {
