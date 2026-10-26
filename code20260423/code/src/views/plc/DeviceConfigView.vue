@@ -61,7 +61,7 @@
 							<div class="card-footer-row">
 								<el-button type="success" link size="small" @click="testConnection(device)">连接测试</el-button>
 								<el-button type="primary" link size="small" @click="goToCollection('/plc/address', device.id)">地址浏览</el-button>
-								<el-button type="warning" link size="small" @click="goTo('/plc/rw')">数据读写</el-button>
+								<el-button type="warning" link size="small" @click="goToCollection('/plc/rw', device.id)">数据读写</el-button>
 								<el-button type="info" link size="small" @click="goTo('/plc/status')">状态监控</el-button>
 								<el-button type="success" link size="small" @click="goToCollection('/plc/import', device.id)">采集配置</el-button>
 								<el-button type="success" link size="small" @click="goToCollection('/collection/manage', device.id)">启动采集</el-button>

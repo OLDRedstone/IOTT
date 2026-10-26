@@ -223,7 +223,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from "vue";
+import { ref, reactive, onMounted, watch } from "vue";
+import { useRoute } from "vue-router";
 import { Link, Edit, Plus } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { machineConnectionDevicesApi } from "@/api/machineConnectionDevices";
@@ -320,6 +321,7 @@ const loadDevices = async () => {
 	try {
 		const list = await machineConnectionDevicesApi.list("Robot");
 		devices.value = list.map((d) => ({ id: d.id, name: d.name }));
+		applyRequestedDevice();
 	} catch (e: unknown) {
 		ElMessage.error(getErr(e, "加载设备列表失败"));
 	}
@@ -327,6 +329,12 @@ const loadDevices = async () => {
 
 // 设备表单
 const deviceForm = reactive({ deviceId: "" });
+const route = useRoute();
+
+const applyRequestedDevice = () => {
+	const id = typeof route.query.deviceId === "string" ? route.query.deviceId : "";
+	if (id && devices.value.some((device) => device.id === id)) deviceForm.deviceId = id;
+};
 const isConnected = ref(false);
 const connectedDeviceName = ref("");
 
@@ -570,6 +578,13 @@ const batchWrite = async () => {
 
 onMounted(() => {
 	void loadDevices();
+});
+
+watch(() => route.query.deviceId, () => {
+	applyRequestedDevice();
+	isConnected.value = false;
+	connectedDeviceName.value = "";
+	rwResult.value = null;
 });
 </script>
 
