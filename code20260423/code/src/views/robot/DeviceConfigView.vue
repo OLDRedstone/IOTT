@@ -48,21 +48,21 @@
 						<div class="card-footer">
 							<div class="card-footer-row">
 								<el-button type="success" link size="small" @click="testConnection(device)">连接测试</el-button>
-								<el-button type="primary" link size="small" @click="goTo('/robot/data')">数据浏览</el-button>
-								<el-button type="warning" link size="small" @click="goTo('/robot/rw')">数据读写</el-button>
-								<el-button type="info" link size="small" @click="goTo('/robot/status')">状态监控</el-button>
+							<el-button type="primary" link size="small" @click="goToDevice('/robot/data', device.id)">数据浏览</el-button>
+							<el-button type="warning" link size="small" @click="goToDevice('/robot/rw', device.id)">数据读写</el-button>
+							<el-button type="info" link size="small" @click="goTo('/robot/status')">状态监控</el-button>
 								<el-button
 									v-if="usesModbusStation(device.protocol)"
 									type="warning"
 									link
 									size="small"
-									@click="goTo('/robot/modbus')"
+									@click="goToDevice('/robot/modbus', device.id)"
 								>Modbus寄存器</el-button>
 								<el-button v-if="device.protocol === 'EstunRobot'" type="primary" link size="small"
-									@click="goTo('/robot/estun')">埃斯顿面板</el-button>
+									@click="goToDevice('/robot/estun', device.id)">埃斯顿面板</el-button>
 							</div>
 							<div class="card-footer-row">
-								<el-upload v-if="device.protocol === 'HuazhongRobot'" accept=".csv,.json"
+								<el-upload v-if="usesModbusStation(device.protocol)" accept=".csv,.json"
 									title="CSV/JSON：Address、ModbusAddress、DataType、GroupName、IntervalMs；可选 DisplayName、IsWritable"
 									:auto-upload="false" :show-file-list="false" :disabled="!!importingDeviceId"
 									:on-change="(file: UploadFile) => importRobotTags(device, file)">
@@ -291,6 +291,10 @@ const router = useRouter();
 
 const goTo = (path: string) => {
 	void router.push(path);
+};
+
+const goToDevice = (path: string, deviceId: string) => {
+	void router.push({ path, query: { deviceId } });
 };
 
 function getErr(e: unknown, fallback: string): string {

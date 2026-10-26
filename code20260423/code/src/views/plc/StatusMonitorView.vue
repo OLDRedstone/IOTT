@@ -73,7 +73,7 @@
 							label="最后更新"
 							width="180"
 						/>
-						<el-table-column label="操作" width="240">
+						<el-table-column label="操作" width="340">
 							<template #default="scope">
 								<el-button
 									type="primary"
@@ -88,6 +88,13 @@
 									@click="diagnoseDevice(scope.row)"
 								>
 									健康诊断
+								</el-button>
+								<el-button
+									type="success"
+									size="small"
+									@click="openCollection(scope.row)"
+								>
+									采集入库
 								</el-button>
 							</template>
 						</el-table-column>
@@ -158,6 +165,15 @@
 				</span>
 			</template>
 		</el-dialog>
+
+		<PointCollectionDialog
+			v-model="collectionDialogVisible"
+			:device-id="collectionDevice?.id ?? ''"
+			:device-name="collectionDevice?.name ?? ''"
+			:session="collectionSession"
+			@start="startPointCollection"
+			@stop="stopPointCollection"
+		/>
 	</div>
 </template>
 
@@ -170,6 +186,8 @@ import {
 	getDeviceRuntimeStatus,
 	type DeviceRuntimeStatus,
 } from "@/stores/deviceRuntimeStatus";
+import PointCollectionDialog from "@/components/PointCollectionDialog.vue";
+import { usePointCollection } from "@/composables/usePointCollection";
 
 interface Device {
 	id: string;
@@ -186,6 +204,30 @@ const isMonitoring = ref(false);
 const monitoringInterval = ref<number | null>(null);
 const detailDialogVisible = ref(false);
 const selectedDevice = ref<Device | null>(null);
+const pointCollection = usePointCollection();
+const collectionDialogVisible = ref(false);
+const collectionDevice = ref<Device | null>(null);
+const collectionSession = computed(() =>
+	collectionDevice.value
+		? pointCollection.sessionFor(collectionDevice.value.id, collectionDevice.value.name)
+		: null,
+);
+
+function openCollection(device: Device) {
+	collectionDevice.value = device;
+	collectionDialogVisible.value = true;
+}
+
+function startPointCollection(deviceId: string) {
+	const name = collectionDevice.value?.id === deviceId
+		? collectionDevice.value.name
+		: devices.value.find((device) => device.id === deviceId)?.name ?? deviceId;
+	void pointCollection.start(deviceId, name);
+}
+
+function stopPointCollection(deviceId: string) {
+	pointCollection.stop(deviceId);
+}
 
 const nowText = () => new Date().toLocaleString();
 const plcMonitorStatusText = (status: DeviceRuntimeStatus) =>
