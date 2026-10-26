@@ -1032,7 +1032,7 @@ public sealed class NativeFocasApi : IFocasApi
         14 => "保留",
         15 => "外部报警信息（EX）",
         16 => "正向超程（软限位1）",
-        _ => "未知错误"
+        _ => $"未知报警状态 ({statusCode})"
     };
 
     private static double ScalePosition(POSELM position) =>
